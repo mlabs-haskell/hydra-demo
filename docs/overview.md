@@ -1,10 +1,10 @@
-﻿# OVERVIEW
+﻿# Overview
 A simple betting game for two players (“Rock-Paper-Scissors”) using Hydra for payments and communication.
 
-# GOALS
+# Goals
 Explore the implementation possibilities of a simple but still non-trivial distributed application with Hydra Node WebSocket API, gathering some feedback in the process.
 
-# SPECIFICATIONS
+# Specifications
 
 ## Overall system architecture
 
