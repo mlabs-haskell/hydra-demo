@@ -10,10 +10,9 @@ Explore the implementation possibilities of a simple but still non-trivial distr
 
 * One Cardano Node
 * For each player
-
-** a Hydra Node communicating with the Cardano Node through its Unix socket
-** an app backend (http) communicating with this Hydra Node through WS API
-** a Web UI served from this app backend
+    * a Hydra Node communicating with the Cardano Node through its Unix socket
+    * an app backend (http) communicating with this Hydra Node through WS API
+    * a Web UI served from this app backend
 
 Note: to be truly distributed there should be a separate Cardano Node for each player connected to the same network, e.g. testnet, but this might be a bit too heavyweight for a simple demonstration - can be left for a future iteration.[a][b]
 
@@ -23,9 +22,8 @@ Users start by committing some of their mainchain UTxOs to the Head thus opening
 
 * both players choose their gestures – “rock”, “paper”, or “scissors” – and place their bets
 * when both players’ bets are observed on the Head, the gestures chosen are revealed and compared
-
-** in case of a tie bets are returned to their respective owners
-** when there is a winning gesture, all the bets are transferred to the winner
+    * in case of a tie bets are returned to their respective owners
+    * when there is a winning gesture, all the bets are transferred to the winner
 
 Alternatively, each round may consist of several games with the winner being chosen by the best number of wins in the round.
 
