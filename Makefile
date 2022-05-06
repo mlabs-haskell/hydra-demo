@@ -1,28 +1,30 @@
-hoogle:
-	hoogle server --local --port=8070 > /dev/null &
+FOURMOLU_EXTENSIONS := -o -XTypeApplications -o -XTemplateHaskell -o -XImportQualifiedPost -o -XPatternSynonyms -o -fplugin=RecordDotPreprocessor
 
-# Source dirs to run fourmolu on
-FORMAT_SOURCES := $(shell git ls-tree -r HEAD --full-tree --name-only | grep -E '.*\.hs' )
+NIX_SOURCES := $(shell find * -iname '*.nix')
+CABAL_SOURCES := $(shell find * -iname '*.cabal')
+HASKELL_SOURCES := $(shell find * -not -path 'dist-newstyle/*' -iname '*.hs')
 
-# Extensions we need to tell fourmolu about
-FORMAT_EXTENSIONS := -o -XTemplateHaskell -o -XTypeApplications -o -XImportQualifiedPost -o -XPatternSynonyms -o -fplugin=RecordDotPreprocessor
+check_all: format_check lint cabalfmt_check nixpkgsfmt_check
 
-# Run fourmolu formatter
+format_all: format nixpkgsfmt cabalfmt
+
 format:
-	fourmolu --mode inplace --check-idempotence $(FORMAT_EXTENSIONS) $(FORMAT_SOURCES)
+	fourmolu $(FOURMOLU_EXTENSIONS) --mode inplace --check-idempotence $(HASKELL_SOURCES)
 
-# Check formatting (without making changes)
 format_check:
-	fourmolu --mode check --check-idempotence $(FORMAT_EXTENSIONS) $(FORMAT_SOURCES)
+	fourmolu $(FOURMOLU_EXTENSIONS) --mode check --check-idempotence $(HASKELL_SOURCES)
 
-# Nix files to format
-NIX_SOURCES := $(shell git ls-tree -r HEAD --full-tree --name-only | grep -E '.*\.nix' )
+nixpkgsfmt:
+	nixpkgs-fmt $(NIX_SOURCES)
 
-nixfmt:
-	nixfmt $(NIX_SOURCES)
+nixpkgsfmt_check:
+	nixpkgs-fmt --check $(NIX_SOURCES)
 
-nixfmt_check:
-	nixfmt --check $(NIX_SOURCES)
+cabalfmt:
+	cabal-fmt --inplace $(CABAL_SOURCES)
+
+cabalfmt_check:
+	cabal-fmt --check $(CABAL_SOURCES)
 
 lint:
-	hlint $(FORMAT_SOURCES)
+	hlint $(HASKELL_SOURCES)

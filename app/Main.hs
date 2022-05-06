@@ -16,6 +16,6 @@ topLevelServer = serveDirectoryFileServer "assets"
 
 main :: IO ()
 main = do
-    appPort : nodeHost : nodePort : _ <- getArgs
-    runClient nodeHost (read nodePort) "/" $ \_hydraConnection ->
-        run (read appPort) $ serve topLevelAPI topLevelServer
+  appPort : nodeHost : nodePort : _ <- getArgs
+  runClient nodeHost (read nodePort) "/" $ \_hydraConnection ->
+    run (read appPort) $ serve topLevelAPI topLevelServer

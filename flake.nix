@@ -10,7 +10,7 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = {self, haskellNix, iohkNix, nixpkgs, flake-utils}:
+  outputs = { self, haskellNix, iohkNix, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -46,18 +46,19 @@
                 ];
 
                 tools = {
-                  cabal = {};
-                  cabal-fmt = {};
+                  cabal = { };
+                  cabal-fmt = { };
                   fourmolu = "0.4.0.0";
-                  hlint = {};
+                  hlint = { };
                 };
               };
             };
           })
         ];
 
-        flake = pkgs.hydraDemoProject.flake {};
-      in flake // {
+        flake = pkgs.hydraDemoProject.flake { };
+      in
+      flake // {
         defaultPackage = flake.packages."hydra-demo:exe:hydra-rps-game";
       });
 }
