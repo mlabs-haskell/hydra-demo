@@ -29,15 +29,15 @@ Alternatively, each round may consist of several games with the winner being cho
 
 At any time each player can decide to close the Head, settling all the payments to Layer 1.
 
-## Implementation notes
-
-By virtue of Hydra transactions being isomorphic to the onchain Cardano transactions the game play rounds can be driven by smart contracts with ordinary Plutus validation scripts: the application builds transactions, submits them to the Head using NewTx input primitive, and tracks transactions of the other player by inspecting SnapshotConfirmed output primitives from the Head. Additional data can be attached to a transaction body by means of the metadata mechanism as illustrated by the Hydraw demo application.
-
-# Advantages of Hydra in this use case
+## Advantages of Hydra in this use case
 
 * Rapid games in close to realtime
 * Lower fees once funds are in the hydra head
 * Micropayment use case
+
+## Implementation notes
+
+By virtue of Hydra transactions being isomorphic to the onchain Cardano transactions the game play rounds can be driven by smart contracts with ordinary Plutus validation scripts: the application builds transactions, submits them to the Head using NewTx input primitive, and tracks transactions of the other player by inspecting SnapshotConfirmed output primitives from the Head. Additional data can be attached to a transaction body by means of the metadata mechanism as illustrated by the Hydraw demo application.
 
 ## Deployment & Build Strategy
 
