@@ -1,0 +1,5 @@
+# cabal build directory
+dist-newstyle/
+
+# nix built output symlink
+result

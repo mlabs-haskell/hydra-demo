@@ -1,0 +1,72 @@
+cabal-version:      3.0
+name:               hydra-demo
+version:            0.1.0
+synopsis:
+  A Rock-Paper-Scissors game using Hydra for payments and communication
+
+homepage:           https://github.com/mlabs-haskell/hydra-demo
+license:            Apache-2.0
+license-file:       LICENSE
+author:             MLabs
+maintainer:         anatoly@mlabs.city
+extra-source-files: CHANGELOG.md
+
+source-repository head
+  type:     git
+  location: https://github.com/mlabs-haskell/hydra-demo
+
+common common-lang
+  ghc-options:
+    -Wall -Wcompat -Wincomplete-record-updates
+    -Wincomplete-uni-patterns -Wredundant-constraints -Werror
+    -fobject-code -fno-ignore-interface-pragmas
+    -fno-omit-interface-pragmas -fplugin=RecordDotPreprocessor
+
+  build-depends:
+    , base                     ^>=4.14
+    , record-dot-preprocessor
+    , record-hasfield
+
+  default-extensions:
+    BangPatterns
+    BinaryLiterals
+    ConstraintKinds
+    DataKinds
+    DeriveFunctor
+    DeriveGeneric
+    DeriveTraversable
+    DerivingStrategies
+    DerivingVia
+    DuplicateRecordFields
+    EmptyCase
+    FlexibleContexts
+    FlexibleInstances
+    GADTs
+    GeneralizedNewtypeDeriving
+    HexFloatLiterals
+    ImportQualifiedPost
+    InstanceSigs
+    KindSignatures
+    LambdaCase
+    MultiParamTypeClasses
+    NumericUnderscores
+    OverloadedStrings
+    ScopedTypeVariables
+    StandaloneDeriving
+    TupleSections
+    TypeApplications
+    TypeOperators
+    TypeSynonymInstances
+    UndecidableInstances
+
+  default-language:   Haskell2010
+
+executable hydra-rps-game
+  import:         common-lang
+  main-is:        Main.hs
+  build-depends:
+    , servant-server
+    , warp
+    , websockets
+
+  hs-source-dirs: app
