@@ -1,3 +1,42 @@
 packages: .
 
 tests: true
+
+source-repository-package
+  type: git
+  location: https://github.com/input-output-hk/cardano-crypto
+  tag: f73079303f663e028288f9f4a9e08bcca39a923e
+  --sha256: 1n87i15x54s0cjkh3nsxs4r1x016cdw1fypwmr68936n3xxsjn6q
+
+source-repository-package
+  type: git
+  location: https://github.com/input-output-hk/cardano-prelude
+  tag: bb4ed71ba8e587f672d06edf9d2e376f4b055555
+  --sha256: 00h10l5mmiza9819p9v5q5749nb9pzgi20vpzpy1d34zmh6gf1cj
+  subdir:
+    cardano-prelude
+
+source-repository-package
+  type: git
+  location: https://github.com/input-output-hk/cardano-base
+  tag: 41545ba3ac6b3095966316a99883d678b5ab8da8
+  --sha256: 0icq9y3nnl42fz536da84414av36g37894qnyw4rk3qkalksqwir
+  subdir:
+    binary
+    cardano-crypto-class
+
+source-repository-package
+  type: git
+  location: https://github.com/input-output-hk/plutus
+  tag: fc5fe94d3d9525d032bcbc79ff0e1ebcfd8ef143
+  --sha256: 1gnzhns44rzvf9cw84jaqajqqbi9xdcpyy2sapa890vwf796nigv
+  subdir:
+    plutus-core
+    plutus-ledger-api
+    plutus-tx
+    plutus-tx-plugin
+    prettyprinter-configurable
+    stubs/plutus-ghc-stub
+    word-array
+
+allow-newer: size-based:template-haskell
