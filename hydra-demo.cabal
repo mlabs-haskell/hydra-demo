@@ -18,7 +18,8 @@ source-repository head
 common common-lang
   ghc-options:
     -Wall -Wcompat -Wincomplete-record-updates
-    -Wincomplete-uni-patterns -Wredundant-constraints -Werror
+    -Wincomplete-uni-patterns -Wredundant-constraints
+    -Wmissing-export-lists -Wmissing-deriving-strategies -Werror
     -fobject-code -fno-ignore-interface-pragmas
     -fno-omit-interface-pragmas -fplugin=RecordDotPreprocessor
 
@@ -28,6 +29,7 @@ common common-lang
     , record-hasfield
 
   default-extensions:
+    NoImplicitPrelude
     BangPatterns
     BinaryLiterals
     ConstraintKinds
@@ -61,12 +63,21 @@ common common-lang
 
   default-language:   Haskell2010
 
+library
+  import:          common-lang
+  exposed-modules: HydraRPS.Contract
+  build-depends:
+    , plutus-ledger
+    , plutus-tx
+    , plutus-tx-plugin
+
+  hs-source-dirs:  src
+
 executable hydra-rps-game
   import:         common-lang
   main-is:        Main.hs
   build-depends:
-    , servant-server
-    , warp
+    , hydra-demo
     , websockets
 
   hs-source-dirs: app
