@@ -1,7 +1,7 @@
 FOURMOLU_EXTENSIONS := -o -XTypeApplications -o -XTemplateHaskell -o -XImportQualifiedPost -o -XPatternSynonyms -o -fplugin=RecordDotPreprocessor
 
-NIX_SOURCES := $(shell find * -iname '*.nix')
-CABAL_SOURCES := $(shell find * -iname '*.cabal')
+NIX_SOURCES := $(shell find * -not -path 'dist-newstyle/*' -iname '*.nix')
+CABAL_SOURCES := $(shell find * -not -path 'dist-newstyle/*' -iname '*.cabal')
 HASKELL_SOURCES := $(shell find * -not -path 'dist-newstyle/*' -iname '*.hs')
 
 check_all: format_check lint cabalfmt_check nixpkgsfmt_check

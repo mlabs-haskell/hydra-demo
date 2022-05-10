@@ -64,25 +64,20 @@ common common-lang
   default-language:   Haskell2010
 
 library
-  import:         common-lang
-
-  exposed-modules:
-    HydraRPS.Contract
-
+  import:          common-lang
+  exposed-modules: HydraRPS.Contract
   build-depends:
     , plutus-ledger
     , plutus-tx
     , plutus-tx-plugin
 
-  hs-source-dirs: src
+  hs-source-dirs:  src
 
 executable hydra-rps-game
   import:         common-lang
-
   main-is:        Main.hs
-
   build-depends:
-      hydra-demo
+    , hydra-demo
     , websockets
 
   hs-source-dirs: app

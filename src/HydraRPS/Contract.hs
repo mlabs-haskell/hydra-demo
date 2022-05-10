@@ -1,12 +1,13 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+
 module HydraRPS.Contract (
-    winnerValidator
-  , winnerValidatorHash
-  , winnerValidatorAddress
+  winnerValidator,
+  winnerValidatorHash,
+  winnerValidatorAddress,
 ) where
 
-import Ledger qualified (ScriptContext, Address, ValidatorHash, scriptHashAddress)
+import Ledger qualified (Address, ScriptContext, ValidatorHash, scriptHashAddress)
 import Ledger.Typed.Scripts qualified as Scripts
 import PlutusTx qualified
 import PlutusTx.Prelude
@@ -14,7 +15,7 @@ import PlutusTx.Prelude
 type Gesture = ()
 type Redeemer = ()
 
-{-# INLINABLE mkWinnerValidator #-}
+{-# INLINEABLE mkWinnerValidator #-}
 mkWinnerValidator :: Gesture -> Redeemer -> Ledger.ScriptContext -> Bool
 mkWinnerValidator () () _ = True
 
@@ -24,10 +25,12 @@ instance Scripts.ValidatorTypes RPS where
   type DatumType RPS = Gesture
 
 typedWinnerValidator :: Scripts.TypedValidator RPS
-typedWinnerValidator = Scripts.mkTypedValidator @RPS
-  $$(PlutusTx.compile [|| mkWinnerValidator ||])
-  $$(PlutusTx.compile [|| wrap ||])
-  where wrap = Scripts.wrapValidator @Gesture @Redeemer
+typedWinnerValidator =
+  Scripts.mkTypedValidator @RPS
+    $$(PlutusTx.compile [||mkWinnerValidator||])
+    $$(PlutusTx.compile [||wrap||])
+  where
+    wrap = Scripts.wrapValidator @Gesture @Redeemer
 
 winnerValidator :: Scripts.Validator
 winnerValidator = Scripts.validatorScript typedWinnerValidator
