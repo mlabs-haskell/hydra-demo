@@ -2,9 +2,9 @@
   description = "Hydra demo";
 
   inputs = {
-    # based on https://github.com/input-output-hk/hydra-poc/blob/f1a54df95780ddd61a8a58936dc0290266bbc0c2/default.nix
+    # based on https://github.com/input-output-hk/hydra-poc/blob/0.5.0/default.nix
 
-    haskellNix.url = "github:input-output-hk/haskell.nix/14f740c7c8f535581c30b1697018e389680e24cb";
+    haskellNix.url = "github:input-output-hk/haskell.nix/28dbf2f4bd32a4fbd1a2e9de45d02ad977b062d9";
     iohkNix.url = "github:input-output-hk/iohk-nix/62d853d3216083ecadc8e7f192498bebad4eee76";
     nixpkgs.follows = "haskellNix/nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
