@@ -65,10 +65,10 @@ common common-lang
 
 executable hydra-rps-game
   import:         common-lang
+
   main-is:        Main.hs
+
   build-depends:
-    , servant-server
-    , warp
     , websockets
 
   hs-source-dirs: app
