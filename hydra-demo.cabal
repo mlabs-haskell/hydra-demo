@@ -67,7 +67,9 @@ library
   import:          common-lang
   exposed-modules: HydraRPS.Contract
   build-depends:
+    , bytestring
     , plutus-ledger
+    , plutus-ledger-api
     , plutus-tx
     , plutus-tx-plugin
 
