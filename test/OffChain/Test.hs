@@ -1,27 +1,20 @@
-{-# OPTIONS_GHC -w #-}
 module OffChain.Test (offChainTests) where
 
-import Test.Tasty qualified as Tasty
+import Control.Monad (void)
 import HydraRPS.OffChain
 import HydraRPS.OnChain
 import Ledger qualified
-import Plutus.Trace.Emulator qualified as Emulator
-import Plutus.V1.Ledger.Ada qualified as Ada
-import Wallet.Emulator.Wallet (Wallet (..), knownWallet, mockWalletPaymentPubKeyHash)
-import Data.Text (Text)
 import Plutus.Contract.Test (
-  assertNoFailedTransactions,
   checkPredicate,
-  checkPredicateOptions,
-  dataAtAddress,
-  defaultCheckOptions,
-  emulatorConfig,
   valueAtAddress,
   walletFundsChange,
   (.&&.),
  )
-import Data.ByteString qualified as BS
+import Plutus.Trace.Emulator qualified as Emulator
+import Plutus.V1.Ledger.Ada qualified as Ada
 import PlutusTx.Builtins (BuiltinByteString)
+import Test.Tasty qualified as Tasty
+import Wallet.Emulator.Wallet (Wallet (..), knownWallet, mockWalletPaymentPubKeyHash)
 import Prelude
 
 offChainTests :: Tasty.TestTree
@@ -29,15 +22,16 @@ offChainTests =
   Tasty.testGroup
     "Off-chain tests"
     [ playTests
-    , claimTests ]
+    , claimTests
+    ]
 
 playTests :: Tasty.TestTree
 playTests =
   Tasty.testGroup
     "play"
-    [ checkPredicate 
+    [ checkPredicate
         "Funds are deposited at validator"
-        (valueAtAddress winnerValidatorAddress (== (Ada.toValue 40000000)))
+        (valueAtAddress winnerValidatorAddress (== Ada.toValue 40000000))
         playTrace
     ]
   where
@@ -61,17 +55,17 @@ claimTests :: Tasty.TestTree
 claimTests =
   Tasty.testGroup
     "claim"
-    [ checkPredicate 
+    [ checkPredicate
         "P2 can claim victory"
-        ((walletFundsChange user2Wallet (Ada.toValue 20000000))
-          .&&.
-        (walletFundsChange user1Wallet (Ada.toValue (-20000000))))
+        ( walletFundsChange user2Wallet (Ada.toValue 20000000)
+            .&&. walletFundsChange user1Wallet (Ada.toValue (-20000000))
+        )
         p2Win
-    , checkPredicate 
+    , checkPredicate
         "P1 can claim draw"
-        ((walletFundsChange user2Wallet (Ada.toValue 0))
-          .&&.
-        (walletFundsChange user1Wallet (Ada.toValue 0)))
+        ( walletFundsChange user2Wallet (Ada.toValue 0)
+            .&&. walletFundsChange user1Wallet (Ada.toValue 0)
+        )
         draw
     ]
   where
@@ -90,11 +84,11 @@ claimTests =
           { ppGesture = Paper
           , ppSalt = user2Salt
           }
-      Emulator.waitNSlots 10
+      void $ Emulator.waitNSlots 10
       Emulator.callEndpoint @"Collect" h2 $
-        CollectParams
-          { cpMyInfo = (user2PubKeyHash, user2Salt)
-          , cpTheirInfo = (user1PubKeyHash, user1Salt)
+        GameRedeemer
+          { grMyInfo = (user2PubKeyHash, user2Salt)
+          , grTheirInfo = (user1PubKeyHash, user1Salt)
           }
 
     draw :: Emulator.EmulatorTrace ()
@@ -112,23 +106,23 @@ claimTests =
           { ppGesture = Rock
           , ppSalt = user2Salt
           }
-      Emulator.waitNSlots 10
+      void $ Emulator.waitNSlots 10
       Emulator.callEndpoint @"Collect" h1 $
-        CollectParams
-          { cpMyInfo = (user1PubKeyHash, user1Salt)
-          , cpTheirInfo = (user2PubKeyHash, user2Salt)
+        GameRedeemer
+          { grMyInfo = (user1PubKeyHash, user1Salt)
+          , grTheirInfo = (user2PubKeyHash, user2Salt)
           }
 
 user1Wallet :: Wallet
 user1Wallet = knownWallet 1
 
-user1Salt :: Text
+user1Salt :: BuiltinByteString
 user1Salt = "user1"
 
 user2Wallet :: Wallet
 user2Wallet = knownWallet 2
 
-user2Salt :: Text
+user2Salt :: BuiltinByteString
 user2Salt = "user2"
 
 user1PubKeyHash :: Ledger.PubKeyHash

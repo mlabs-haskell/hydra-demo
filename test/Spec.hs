@@ -1,7 +1,7 @@
 module Main (main) where
 
-import Test.Tasty qualified as Tasty
 import OffChain.Test (offChainTests)
+import Test.Tasty qualified as Tasty
 import Prelude
 
 main :: IO ()
@@ -11,4 +11,4 @@ tests :: Tasty.TestTree
 tests =
   Tasty.testGroup
     "Hydra-demo"
-    [ offChainTests ]
+    [offChainTests]

@@ -173,7 +173,5 @@ constraints:
   -- cardano-ledger-byron-test fails with too new hedgehog
     hedgehog >= 1.0 && < 1.1
   , aeson < 2
-  -- needed for plutus-apps
-  -- , servant >= 0.18
 
 allow-newer: size-based:template-haskell
