@@ -65,13 +65,21 @@ common common-lang
 
 library
   import:          common-lang
-  exposed-modules: HydraRPS.Contract
+  exposed-modules: 
+    HydraRPS.OnChain
+    HydraRPS.OffChain
   build-depends:
+    , aeson
     , bytestring
+    , containers
+    , lens
+    , plutus-contract
+    , plutus-ledger-constraints
     , plutus-ledger
     , plutus-ledger-api
     , plutus-tx
     , plutus-tx-plugin
+    , text
 
   hs-source-dirs:  src
 
@@ -83,3 +91,20 @@ executable hydra-rps-game
     , websockets
 
   hs-source-dirs: app
+
+test-suite hydra-rps-game-test
+  import:         common-lang
+  type:           exitcode-stdio-1.0
+  main-is:        Spec.hs
+  other-modules:
+    OffChain.Test
+  build-depends:
+    , bytestring
+    , hydra-demo
+    , plutus-contract
+    , plutus-ledger
+    , plutus-ledger-api
+    , plutus-tx
+    , tasty
+    , text
+  hs-source-dirs: test
