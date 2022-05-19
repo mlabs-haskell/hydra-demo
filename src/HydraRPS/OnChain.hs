@@ -69,13 +69,13 @@ PlutusTx.unstableMakeIsData ''GameRedeemer
 
 {-# INLINEABLE mkWinnerValidator #-}
 mkWinnerValidator :: GameDatum -> GameRedeemer -> ScriptContext -> Bool
-mkWinnerValidator datum (GameRedeemer myInfo theirInfo) ctx
-  | isClaimingMyToken = case otherPlay (fst theirInfo) of
-    Nothing -> traceError "should contain other tk matching theirInfo"
-    Just tOut -> paysCorrectly (claimingPlay, myInfo) (tOut, theirInfo)
-  | isClaimingTheirToken = case otherPlay (fst myInfo) of
-    Nothing -> traceError "should contain other tk matching myInfo"
-    Just tOut -> paysCorrectly (tOut, myInfo) (claimingPlay, theirInfo)
+mkWinnerValidator datum (GameRedeemer (myKey, mySalt) (theirKey, theirSalt)) ctx
+  | isClaimingMyToken = case otherPlay theirKey of
+    Nothing -> traceError "should contain other input matching their key"
+    Just (tOut, theirDatum) -> paysCorrectly (claimingPlay, toGesture (gdGesture datum) mySalt, myKey) (tOut, toGesture (gdGesture theirDatum) theirSalt, theirKey)
+  | isClaimingTheirToken = case otherPlay myKey of
+    Nothing -> traceError "should contain other input matching my key"
+    Just (tOut, myDatum) -> paysCorrectly (tOut, toGesture (gdGesture myDatum) mySalt, myKey) (claimingPlay, toGesture (gdGesture datum) theirSalt, theirKey)
   | otherwise = traceError "no good claim"
   where
     info :: TxInfo
@@ -84,15 +84,22 @@ mkWinnerValidator datum (GameRedeemer myInfo theirInfo) ctx
     txIns :: [TxInInfo]
     txIns = txInfoInputs info
 
-    otherPlay :: PubKeyHash -> Maybe TxOut
+    firstJust :: (a -> Maybe b) -> [a] -> Maybe b
+    firstJust f (a : as) = case f a of
+      Nothing -> firstJust f as
+      Just b -> Just b
+    firstJust _ [] = Nothing
+
+    otherPlay :: PubKeyHash -> Maybe (TxOut, GameDatum)
     otherPlay pk =
-      txInInfoResolved
-        <$> ( find $ \tIn ->
-                case toGameDatum (txInInfoResolved tIn) of
-                  Nothing -> False
-                  Just gd -> matchesInfo gd pk
-            )
-          txIns
+      firstJust
+        ( \tIn -> do
+            gd <- toGameDatum (txInInfoResolved tIn)
+            if matchesInfo gd pk
+              then Just (txInInfoResolved tIn, gd)
+              else Nothing
+        )
+        txIns
 
     claimingPlay :: TxOut
     claimingPlay = case findOwnInput ctx of
@@ -109,30 +116,19 @@ mkWinnerValidator datum (GameRedeemer myInfo theirInfo) ctx
     matchesInfo (GameDatum _ pkh) pkh' = pkh == pkh'
 
     isClaimingMyToken :: Bool
-    isClaimingMyToken = matchesInfo datum (fst myInfo)
+    isClaimingMyToken = matchesInfo datum myKey
 
     isClaimingTheirToken :: Bool
-    isClaimingTheirToken = matchesInfo datum (fst theirInfo)
-
-    -- fromMaybe is strict in plutus :(
-    fromJust :: Maybe a -> a
-    fromJust a = case a of
-      Nothing -> traceError "fromJust"
-      Just b -> b
+    isClaimingTheirToken = matchesInfo datum theirKey
 
     fee :: Value
     fee = txInfoFee info
 
-    paysCorrectly :: (TxOut, RedeemInfo) -> (TxOut, RedeemInfo) -> Bool
-    paysCorrectly (myTOut, (myPk, mySalt)) (theirTOut, (theirPk, theirSalt))
+    paysCorrectly :: (TxOut, Gesture, PubKeyHash) -> (TxOut, Gesture, PubKeyHash) -> Bool
+    paysCorrectly (myTOut, myGesture, myPk) (theirTOut, theirGesture, theirPk)
       | beats myGesture theirGesture = traceIfFalse "shouldPay all to myKey" $ valuePaidTo info myPk `geq` ((txOutValue myTOut <> txOutValue theirTOut) - fee)
       | beats theirGesture myGesture = traceIfFalse "shouldPay all to theirKey" $ valuePaidTo info theirPk `geq` ((txOutValue myTOut <> txOutValue theirTOut) - fee)
       | otherwise = traceIfFalse "should pay ada back" $ valuePaidTo info myPk `geq` (txOutValue myTOut - fee) && valuePaidTo info theirPk `geq` (txOutValue theirTOut - fee)
-      where
-        myDatum = fromJust (toGameDatum myTOut)
-        myGesture = toGesture (gdGesture myDatum) mySalt
-        theirDatum = fromJust (toGameDatum theirTOut)
-        theirGesture = toGesture (gdGesture theirDatum) theirSalt
 
 {-# INLINEABLE encryptGesture #-}
 encryptGesture :: Gesture -> BuiltinByteString -> BuiltinByteString
