@@ -126,7 +126,7 @@ mkWinnerValidator datum (GameRedeemer myInfo theirInfo) ctx
     paysCorrectly :: (TxOut, RedeemInfo) -> (TxOut, RedeemInfo) -> Bool
     paysCorrectly (myTOut, (myPk, mySalt)) (theirTOut, (theirPk, theirSalt))
       | beats myGesture theirGesture = traceIfFalse "shouldPay all to myKey" $ valuePaidTo info myPk `geq` ((txOutValue myTOut <> txOutValue theirTOut) - fee)
-      | beats theirGesture myGesture = traceIfFalse "shouldPay all to theirKey" $ valuePaidTo info myPk `geq` ((txOutValue myTOut <> txOutValue theirTOut) - fee)
+      | beats theirGesture myGesture = traceIfFalse "shouldPay all to theirKey" $ valuePaidTo info theirPk `geq` ((txOutValue myTOut <> txOutValue theirTOut) - fee)
       | otherwise = traceIfFalse "should pay ada back" $ valuePaidTo info myPk `geq` (txOutValue myTOut - fee) && valuePaidTo info theirPk `geq` (txOutValue theirTOut - fee)
       where
         myDatum = fromJust (toGameDatum myTOut)
@@ -146,7 +146,7 @@ toGesture bbs salt
   | encryptGesture Rock salt == bbs = Rock
   | encryptGesture Paper salt == bbs = Paper
   | encryptGesture Scissors salt == bbs = Scissors
-  | otherwise = traceError "gesture"
+  | otherwise = traceError "unable to decode gesture"
 
 data RPS
 instance Scripts.ValidatorTypes RPS where

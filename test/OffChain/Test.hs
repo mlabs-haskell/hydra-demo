@@ -67,6 +67,12 @@ claimTests =
             .&&. walletFundsChange user1Wallet (Ada.toValue 0)
         )
         draw
+    , checkPredicate
+        "P1 can not claim win if they lost"
+        ( valueAtAddress winnerValidatorAddress (== Ada.toValue 40000000)
+            .&&. walletFundsChange user1Wallet (Ada.toValue (-20000000))
+        )
+        p1Cheat
     ]
   where
     p2Win :: Emulator.EmulatorTrace ()
@@ -104,6 +110,28 @@ claimTests =
       Emulator.callEndpoint @"Play" h2 $
         PlayParams
           { ppGesture = Rock
+          , ppSalt = user2Salt
+          }
+      void $ Emulator.waitNSlots 10
+      Emulator.callEndpoint @"Collect" h1 $
+        GameRedeemer
+          { grMyInfo = (user1PubKeyHash, user1Salt)
+          , grTheirInfo = (user2PubKeyHash, user2Salt)
+          }
+
+    p1Cheat :: Emulator.EmulatorTrace ()
+    p1Cheat = do
+      h1 <- Emulator.activateContractWallet user1Wallet endpoints
+      h2 <- Emulator.activateContractWallet user2Wallet endpoints
+
+      Emulator.callEndpoint @"Play" h1 $
+        PlayParams
+          { ppGesture = Rock
+          , ppSalt = user1Salt
+          }
+      Emulator.callEndpoint @"Play" h2 $
+        PlayParams
+          { ppGesture = Paper
           , ppSalt = user2Salt
           }
       void $ Emulator.waitNSlots 10

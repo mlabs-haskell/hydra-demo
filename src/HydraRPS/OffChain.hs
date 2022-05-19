@@ -9,7 +9,7 @@ import Control.Lens ((^.))
 import Control.Monad (foldM, forever, void)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Map qualified as Map
-import Data.Text (Text, pack)
+import Data.Text (Text)
 import GHC.Generics (Generic)
 import Prelude
 
@@ -72,7 +72,7 @@ collect (GameRedeemer (myPk, mySalt) (theirPk, theirSalt)) = do
           extraConstraints = [Constraints.mustPayToPubKey (Ledger.PaymentPubKeyHash theirPk) (ciT2 ^. Ledger.ciTxOutValue) | myGesture == theirGesture]
 
           tx = mconcat $ ((`Constraints.mustSpendScriptOutput` redeemer) <$> (fst . fst <$> filteredUtxos)) <> extraConstraints
-      Contract.logError @Text $ pack . show $ toGesture (gdGesture d2) theirSalt `beats` toGesture (gdGesture d1) mySalt
+
       void $ Contract.submitTxConstraintsWith @RPS lookups tx
     _ -> do
       Contract.logDebug @Text "Expected to find pair of utxos, bailing."
