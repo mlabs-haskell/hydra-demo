@@ -1,6 +1,7 @@
 module HydraRPS.Tx (
   baseBodyContent,
   parseTxIn,
+  signTx,
   txInForSpending,
   txOutToScript,
   txOutToAddress,
@@ -54,3 +55,8 @@ txOutToScript networkId scriptAddress lovelace datum = do
 
 txOutToAddress :: AddressInEra AlonzoEra -> Lovelace -> TxOut ctx AlonzoEra
 txOutToAddress address lovelace = TxOut address (lovelaceToTxOutValue lovelace) TxOutDatumNone
+
+signTx :: SigningKey PaymentKey -> TxBody AlonzoEra -> Tx AlonzoEra
+signTx signingKey body = Tx body [witness]
+  where
+    witness = makeShelleyKeyWitness body (WitnessPaymentKey signingKey)
