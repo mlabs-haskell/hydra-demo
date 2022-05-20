@@ -1,3 +1,5 @@
+index-state: 2022-02-22T20:47:03Z
+
 packages: .
 
 tests: true
@@ -139,6 +141,10 @@ source-repository-package
   tag: v2022-04-06
   --sha256: 13yg3vb6a6gmjawlfa3wam5c6krqm7lip4w1p0j30hflca23x2h2
   subdir:
+    plutus-contract
+    plutus-chain-index-core
+    plutus-ledger-constraints
+    quickcheck-dynamic
     freer-extras
     plutus-ledger
 
