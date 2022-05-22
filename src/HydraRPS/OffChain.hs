@@ -53,18 +53,18 @@ play (PlayParams gesture salt) = do
   pkh <- Ledger.unPaymentPubKeyHash <$> Contract.ownPaymentPubKeyHash
   let val = Ada.lovelaceValueOf 20000000
       datum = Ledger.Datum $ PlutusTx.toBuiltinData $ GameDatum (encryptGesture gesture salt) pkh
-      tx = Constraints.mustPayToOtherScript winnerValidatorHash datum val
-  void $ Contract.submitTxConstraints @RPS typedWinnerValidator tx
+      tx = Constraints.mustPayToOtherScript rpsValidatorHash datum val
+  void $ Contract.submitTxConstraints @RPS typedRPSValidator tx
 
 collect :: GameRedeemer -> Contract () RPSSchema Text ()
 collect (GameRedeemer (myPk, mySalt) (theirPk, theirSalt)) = do
-  utxos <- Contract.utxosAt winnerValidatorAddress
+  utxos <- Contract.utxosAt rpsValidatorAddress
   filteredUtxos <- filterUtxos utxos
 
   case filteredUtxos of
     [(_, d1), ((_, ciT2), d2)] -> do
       let lookups =
-            Constraints.otherScript winnerValidator
+            Constraints.otherScript rpsValidator
               <> Constraints.unspentOutputs (Map.fromList $ fst <$> filteredUtxos)
           redeemer = Ledger.Redeemer $ PlutusTx.toBuiltinData $ GameRedeemer (myPk, mySalt) (theirPk, theirSalt)
           myGesture = toGesture (gdGesture d1) mySalt

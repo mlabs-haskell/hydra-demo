@@ -31,7 +31,7 @@ playTests =
     "play"
     [ checkPredicate
         "Funds are deposited at validator"
-        (valueAtAddress winnerValidatorAddress (== Ada.toValue 40000000))
+        (valueAtAddress rpsValidatorAddress (== Ada.toValue 40000000))
         playTrace
     ]
   where
@@ -69,7 +69,7 @@ claimTests =
         draw
     , checkPredicate
         "P1 can not claim win if they lost"
-        ( valueAtAddress winnerValidatorAddress (== Ada.toValue 40000000)
+        ( valueAtAddress rpsValidatorAddress (== Ada.toValue 40000000)
             .&&. walletFundsChange user1Wallet (Ada.toValue (-20000000))
         )
         p1Cheat

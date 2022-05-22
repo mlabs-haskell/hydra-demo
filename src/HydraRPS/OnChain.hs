@@ -3,10 +3,10 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module HydraRPS.OnChain (
-  winnerValidator,
-  winnerValidatorHash,
-  winnerValidatorAddress,
-  typedWinnerValidator,
+  rpsValidator,
+  rpsValidatorHash,
+  rpsValidatorAddress,
+  typedRPSValidator,
   Gesture (..),
   GameDatum (..),
   GameRedeemer (..),
@@ -67,9 +67,9 @@ data GameRedeemer = GameRedeemer
   deriving anyclass (FromJSON, ToJSON)
 PlutusTx.unstableMakeIsData ''GameRedeemer
 
-{-# INLINEABLE mkWinnerValidator #-}
-mkWinnerValidator :: GameDatum -> GameRedeemer -> ScriptContext -> Bool
-mkWinnerValidator datum (GameRedeemer (myKey, mySalt) (theirKey, theirSalt)) ctx
+{-# INLINEABLE mkRPSValidator #-}
+mkRPSValidator :: GameDatum -> GameRedeemer -> ScriptContext -> Bool
+mkRPSValidator datum (GameRedeemer (myKey, mySalt) (theirKey, theirSalt)) ctx
   | isClaimingMyToken = case otherPlay theirKey of
     Nothing -> traceError "should contain other input matching their key"
     Just (tOut, theirDatum) -> paysCorrectly (claimingPlay, toGesture (gdGesture datum) mySalt, myKey) (tOut, toGesture (gdGesture theirDatum) theirSalt, theirKey)
@@ -149,19 +149,19 @@ instance Scripts.ValidatorTypes RPS where
   type RedeemerType RPS = GameRedeemer
   type DatumType RPS = GameDatum
 
-typedWinnerValidator :: Scripts.TypedValidator RPS
-typedWinnerValidator =
+typedRPSValidator :: Scripts.TypedValidator RPS
+typedRPSValidator =
   Scripts.mkTypedValidator @RPS
-    $$(PlutusTx.compile [||mkWinnerValidator||])
+    $$(PlutusTx.compile [||mkRPSValidator||])
     $$(PlutusTx.compile [||wrap||])
   where
     wrap = Scripts.wrapValidator @GameDatum @GameRedeemer
 
-winnerValidator :: Scripts.Validator
-winnerValidator = Scripts.validatorScript typedWinnerValidator
+rpsValidator :: Scripts.Validator
+rpsValidator = Scripts.validatorScript typedRPSValidator
 
-winnerValidatorHash :: ValidatorHash
-winnerValidatorHash = Scripts.validatorHash typedWinnerValidator
+rpsValidatorHash :: ValidatorHash
+rpsValidatorHash = Scripts.validatorHash typedRPSValidator
 
-winnerValidatorAddress :: Address
-winnerValidatorAddress = Ledger.scriptHashAddress winnerValidatorHash
+rpsValidatorAddress :: Address
+rpsValidatorAddress = Ledger.scriptHashAddress rpsValidatorHash
