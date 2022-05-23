@@ -9,8 +9,9 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Prelude
 
-import HydraRPS.Contract (winnerValidatorAddress)
 import HydraRPS.Tx
+
+import TxTest.DummyContract (dummyValidatorAddress)
 
 main :: IO ()
 main = defaultMain tests
@@ -70,7 +71,7 @@ lockTxBodyBuilder :: Either String (TxBody AlonzoEra)
 lockTxBodyBuilder = do
   txIn <- first ("bad tx-in format:" <>) $ parseTxIn txInStr
   changeAddress <- maybe (Left "bad change address") Right $ deserialiseAddress (AsAddressInEra AsAlonzoEra) addrStr
-  scriptOut <- first (("bad address specifier: " <>) . show) $ txOutToScript networkId winnerValidatorAddress 10000000 testDatum
+  scriptOut <- first (("bad address specifier: " <>) . show) $ txOutToScript networkId dummyValidatorAddress 10000000 testDatum
   let changeOut = txOutToAddress changeAddress 990000000
       bodyContent =
         baseBodyContent
