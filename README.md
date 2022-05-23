@@ -6,7 +6,7 @@ A simple betting game for two players (“Rock-Paper-Scissors”) played inside 
 
 - Explore the implementation possibilities of a simple but still non-trivial distributed application with Hydra Node WebSocket API
 - Relate any feedback or pain points encoutered during development to the Hydra team
-- Produce an experience report for the whole process that can be used a reference both as for the Hydra team to understand the hurdles encountered and for other parties wanting to develop on Hydra.
+- Produce an experience report for the whole process that can be used as reference both for the Hydra team to understand the hurdles encountered and for other parties wanting to develop on Hydra.
 
 # Specification
 
