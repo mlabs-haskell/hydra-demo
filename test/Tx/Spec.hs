@@ -22,10 +22,12 @@ tests =
     "TxBody construction"
     [ testCase "lock to a script output" $
         (serialiseToCBORHex <$> lockTxBodyBuilder) @?= Right lockTxBodyCBOR
+
     , testCase "spend a script output" $ do
         pparamsResult <- eitherDecodeFileStrict' "devnet/protocol-parameters.json"
         let txBodyResult = pparamsResult >>= spendTxBodyBuilder
         (serialiseToCBORHex <$> txBodyResult) @?= Right spendTxBodyCBOR
+
     , testCase "sign a transaction" $
         (serialiseToCBORHex . signTx skey <$> lockTxBodyBuilder) @?= Right lockSignedTxCBOR
         {-
