@@ -77,6 +77,31 @@ lockSignedTxCBOR =
   \388f1b2835259553a2b1f91b120522975daa8776d3f36992cc941015897a\
   \e7746a54de81b486adb63725f6deee3e1ba9ca0af5f6"
 
+{-
+obtained with
+    # serialised `PlutusTx.toBuiltinData ()`
+    echo '{"constructor":0,"fields":[]}' >/tmp/unit.jsob
+
+    # `dummyValidator` JSON text envelope
+    cabal repl test:hydra-rps-game-test \
+        --repl-options -e --repl-options ':m Prelude Cardano.Api Ledger Tx.DummyContract' \
+        --repl-options -e --repl-options \
+        'writeFileTextEnvelope "/tmp/test-script.json" Nothing . toCardanoApiScript . getValidator $ dummyValidator'
+
+    cardano-cli transaction build-raw \
+      --alonzo-era \
+      --protocol-params-file devnet/protocol-parameters.json \
+      --fee 0 \
+      --tx-in 8a1a513d971b48ae911a8267cedbb68355b036ff64ab76f10668ee3452f2839a#0 \
+      --tx-in-datum-file /tmp/unit.json \
+      --tx-in-redeemer-file /tmp/unit.json \
+      --tx-in-script-file /tmp/test-script.json \
+      --tx-out 'addr_test1vqg9ywrpx6e50uam03nlu0ewunh3yrscxmjayurmkp52lfskgkq5k+10000000' \
+      --tx-in-execution-units '(10000000000, 16000000)' \
+      --tx-in-collateral 8a1a513d971b48ae911a8267cedbb68355b036ff64ab76f10668ee3452f2839a#1 \
+      --out-file /dev/stdout | \
+    jq .cborHex
+-}
 spendTxBodyCBOR :: ByteString
 spendTxBodyCBOR =
   "86a600818258208a1a513d971b48ae911a8267cedbb68355b036ff64ab76\
