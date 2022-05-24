@@ -19,14 +19,14 @@ type Redeemer = ()
 mkDummyValidator :: Gesture -> Redeemer -> Ledger.ScriptContext -> Bool
 mkDummyValidator () () _ = True
 
-data RPS
-instance Scripts.ValidatorTypes RPS where
-  type RedeemerType RPS = Redeemer
-  type DatumType RPS = Gesture
+data DummyValidator
+instance Scripts.ValidatorTypes DummyValidator where
+  type RedeemerType DummyValidator = Redeemer
+  type DatumType DummyValidator = Gesture
 
-typedDummyValidator :: Scripts.TypedValidator RPS
+typedDummyValidator :: Scripts.TypedValidator DummyValidator
 typedDummyValidator =
-  Scripts.mkTypedValidator @RPS
+  Scripts.mkTypedValidator @DummyValidator
     $$(PlutusTx.compile [||mkDummyValidator||])
     $$(PlutusTx.compile [||wrap||])
   where
