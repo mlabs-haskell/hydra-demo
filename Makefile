@@ -2,7 +2,7 @@ FOURMOLU_EXTENSIONS := -o -XTypeApplications -o -XTemplateHaskell -o -XImportQua
 
 NIX_SOURCES := $(shell find * -not -path 'dist-newstyle/*' -iname '*.nix')
 CABAL_SOURCES := $(shell find * -not -path 'dist-newstyle/*' -iname '*.cabal')
-HASKELL_SOURCES := $(shell find * -not -path 'dist-newstyle/*' -iname '*.hs')
+HASKELL_SOURCES := $(shell find app src test -iname '*.hs')
 
 check_all: format_check lint cabalfmt_check nixpkgsfmt_check
 
