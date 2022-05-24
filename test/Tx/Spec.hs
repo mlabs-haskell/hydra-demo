@@ -1,4 +1,4 @@
-module Main (main) where
+module Tx.Spec (tests) where
 
 import Cardano.Api
 import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits))
@@ -14,10 +14,7 @@ import Prelude
 
 import HydraRPS.Tx
 
-import TxTest.DummyContract (dummyValidator, dummyValidatorAddress)
-
-main :: IO ()
-main = defaultMain tests
+import Tx.DummyContract (dummyValidator, dummyValidatorAddress)
 
 tests :: TestTree
 tests =

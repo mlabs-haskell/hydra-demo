@@ -84,11 +84,14 @@ executable hydra-rps-game
 
   hs-source-dirs: app
 
-test-suite hydra-rps-tx-test
+test-suite hydra-rps-game-test
   import:         common-lang
   type:           exitcode-stdio-1.0
-  main-is:        TxTest/Spec.hs
-  other-modules:  TxTest.DummyContract
+  main-is:        Spec.hs
+  other-modules:
+    Tx.DummyContract
+    Tx.Spec
+
   build-depends:
     , aeson
     , base16-bytestring

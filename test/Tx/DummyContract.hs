@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module TxTest.DummyContract (
+module Tx.DummyContract (
   dummyValidator,
   dummyValidatorHash,
   dummyValidatorAddress,
