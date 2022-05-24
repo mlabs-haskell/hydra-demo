@@ -65,9 +65,7 @@ common common-lang
 
 library
   import:          common-lang
-  exposed-modules:
-    HydraRPS.Tx
-
+  exposed-modules: HydraRPS.Tx
   build-depends:
     , aeson
     , cardano-api
@@ -90,18 +88,16 @@ test-suite hydra-rps-tx-test
   import:         common-lang
   type:           exitcode-stdio-1.0
   main-is:        TxTest/Spec.hs
-
-  other-modules:
-    TxTest.DummyContract
-
+  other-modules:  TxTest.DummyContract
   build-depends:
-    , plutus-ledger
-    , plutus-tx
-    , plutus-tx-plugin
+    , aeson
     , base16-bytestring
     , bytestring
     , cardano-api
     , hydra-demo
+    , plutus-ledger
+    , plutus-tx
+    , plutus-tx-plugin
     , tasty
     , tasty-hunit
     , text
