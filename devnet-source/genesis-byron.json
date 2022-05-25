@@ -1,5 +1,5 @@
 { "protocolConsts": { "k": 2160, "protocolMagic": 42 }
-, "startTime": 0
+, "startTime": 1653474184
 , "bootStakeholders":
     { "314cfe69811884f30fa198f6f39730e956fc010227112cd777368265": 1
     , "bf097c2a5e3d1f0f5b0836b3db04bb752077f4c243e299d52bcb271d": 1
