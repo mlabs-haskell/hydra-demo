@@ -106,9 +106,9 @@ test-suite hydra-rps-game-test
 
   build-depends:
     , aeson
-    , base16-bytestring
     , bytestring
     , cardano-api
+    , filepath
     , hydra-demo
     , plutus-contract
     , plutus-ledger
