@@ -3,3 +3,5 @@ dist-newstyle/
 
 # nix built output symlink
 result
+
+devnet/
