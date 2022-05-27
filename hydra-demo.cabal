@@ -90,7 +90,11 @@ executable hydra-rps-game
   import:         common-lang
   main-is:        Main.hs
   build-depends:
+    , aeson
+    , bytestring
+    , cardano-api
     , hydra-demo
+    , text
     , websockets
 
   hs-source-dirs: app
