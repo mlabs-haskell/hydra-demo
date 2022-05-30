@@ -95,6 +95,7 @@ executable hydra-rps-game
     , cardano-api
     , containers
     , hydra-demo
+    , plutus-ledger
     , text
     , websockets
 

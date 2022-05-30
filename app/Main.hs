@@ -3,29 +3,34 @@
 {-# LANGUAGE PatternSynonyms #-}
 module Main (main, ClientInput (NewTxCBOR)) where
 
-import Cardano.Api (AlonzoEra, AsType (AsAddressInEra, AsAlonzoEra), Lovelace (Lovelace), UTxO (UTxO), Tx, deserialiseAddress, serialiseToCBOR)
+import Cardano.Api (AlonzoEra, AsType (AsAddressInEra, AsAlonzoEra, AsSigningKey, AsPaymentKey), NetworkId (Testnet), NetworkMagic (NetworkMagic), Lovelace (Lovelace), UTxO (UTxO), Tx, TxIn, deserialiseAddress, serialiseToCBOR, readFileTextEnvelope)
 import Control.Concurrent (forkIO, newChan, readChan, writeChan)
 import Control.Exception (SomeException, displayException, fromException, try)
-import Data.Aeson qualified as Aeson (ToJSON, encode, toJSON)
+import Data.Aeson qualified as Aeson (FromJSON, ToJSON, encode, decodeStrict, toJSON)
 import Data.ByteString.Lazy qualified as ByteString (toStrict)
 import Data.Functor (void)
 import Data.Map qualified as Map (singleton)
 import Data.String (fromString)
 import Data.Text (Text)
-import Data.Text.Encoding (decodeUtf8)
+import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Text.IO qualified as Text (putStrLn)
 import GHC.Generics (Generic)
+import Ledger (PubKeyHash)
 import Network.WebSockets (ConnectionException, receiveData, sendTextData, runClient)
 import System.Environment (getArgs)
 import System.IO.Error (isEOFError)
 
-import HydraRPS.Tx (parseTxIn, txOutToAddress)
+import HydraRPS.OffChain (PlayParams (..))
+import HydraRPS.Tx (UserCredentials (..), mkUserCredentials, parseTxIn, txOutToAddress)
 
 import Prelude
 
 main :: IO ()
 main = do
-  nodeHost : nodePort : _ <- getArgs
+  nodeHost : nodePort : keyFile : _ <- getArgs
+  skey <- either (fail . show) pure =<< readFileTextEnvelope (AsSigningKey AsPaymentKey) keyFile
+  let networkId = Testnet (NetworkMagic 42)
+      userCreds = mkUserCredentials networkId skey
   runClient nodeHost (read nodePort) "/" $ \ws -> do
     let nextServerEvent = receiveData ws
         submitCommand input = do
@@ -40,7 +45,7 @@ main = do
 
     void $ forkIO $ apiReader nextServerEvent enqueueApiEvent
     void $ forkIO $ commandReader enqueuUserCommand
-    eventProcessor submitCommand nextEvent
+    eventProcessor userCreds submitCommand nextEvent
 
 data ClientInput
   = Init {contestationPeriod :: Int}
@@ -74,6 +79,23 @@ data UserCommand =
   | AbortHead
   | CloseHead
   | IssueFanout
+  | Bet TxIn PlayParams
+  | Claim ClaimParams
+
+data ClaimInput = ClaimInput
+  { _txIn :: TxIn
+  , _pkh :: PubKeyHash
+  , _playParams :: PlayParams
+  }
+  deriving stock (Generic)
+  deriving anyclass (Aeson.FromJSON)
+
+data ClaimParams = ClaimParams
+  { _myInput :: ClaimInput
+  , _theirInput :: ClaimInput
+  }
+  deriving stock (Generic)
+  deriving anyclass (Aeson.FromJSON)
 
 apiReader :: IO Text -> (ApiEvent -> IO ()) -> IO ()
 apiReader nextServerEvent enqueue = go
@@ -114,12 +136,19 @@ commandReader enqueue = go
             , [(lovelace, "")] <- reads lovelaceStr -> do
               enqueue $ CommitToHead $ UTxO $ Map.singleton txIn (txOutToAddress addr (Lovelace lovelace))
               go
+          "bet" : txInStr : ppStr
+            | Right txIn <- parseTxIn (fromString txInStr)
+            , Just pp <- parseJsonArgs ppStr -> enqueue (Bet txIn pp) >> go
+          "claim" : cpStr | Just cp <- parseJsonArgs cpStr -> enqueue (Claim cp) >> go
           cmd -> do
             putStrLn $ "input: unknown command " <> show cmd
             go
 
-eventProcessor :: (ClientInput -> IO ()) -> IO AppEvent -> IO ()
-eventProcessor submitCommand nextEvent = go
+    parseJsonArgs :: Aeson.FromJSON a => [String] -> Maybe a
+    parseJsonArgs = Aeson.decodeStrict . encodeUtf8 . fromString . unwords
+
+eventProcessor :: UserCredentials -> (ClientInput -> IO ()) -> IO AppEvent -> IO ()
+eventProcessor _userCreds submitCommand nextEvent = go
   where
     go = do
       event <- nextEvent
@@ -143,3 +172,5 @@ eventProcessor submitCommand nextEvent = go
             CommitToHead utxoToCommit -> do
               submitCommand $ Commit utxoToCommit
               go
+            Bet _txIn _pp -> putStrLn "no betting yet"
+            Claim _cp -> putStrLn "no claiming yet"
