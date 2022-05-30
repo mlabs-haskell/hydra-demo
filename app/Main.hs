@@ -4,14 +4,14 @@
 module Main (main, ClientInput (NewTxCBOR)) where
 
 import Cardano.Api (AlonzoEra, UTxO, Tx, serialiseToCBOR)
-import Control.Concurrent (Chan, forkIO, newChan, readChan, writeChan)
+import Control.Concurrent (forkIO, newChan, readChan, writeChan)
 import Control.Exception (SomeException, displayException, fromException, try)
 import Data.Aeson qualified as Aeson (ToJSON, encode, toJSON)
 import Data.Functor (void)
 import Data.Text (Text)
 import Data.Text.IO qualified as Text (putStrLn)
 import GHC.Generics (Generic)
-import Network.WebSockets (Connection, ConnectionException, receiveData, sendTextData, runClient)
+import Network.WebSockets (ConnectionException, receiveData, sendTextData, runClient)
 import System.Environment (getArgs)
 import System.IO.Error (isEOFError)
 
@@ -22,9 +22,9 @@ main = do
   nodeHost : nodePort : _ <- getArgs
   runClient nodeHost (read nodePort) "/" $ \ws -> do
     events <- newChan
-    void $ forkIO $ wsReceiver ws events
-    void $ forkIO $ commandReader events
-    eventProcessor ws events
+    void $ forkIO $ apiReader (receiveData ws) (writeChan events . ApiEvent)
+    void $ forkIO $ commandReader (writeChan events . UserCommand)
+    eventProcessor (sendTextData ws . Aeson.encode) (readChan events)
 
 data ClientInput
   = Init {contestationPeriod :: Int}
@@ -46,57 +46,62 @@ instance Aeson.ToJSON TxCBOR where
   toJSON = Aeson.toJSON . serialiseToCBOR . getTx
 
 data AppEvent =
-    WsError ConnectionException
-  | WsOutput Text
+    ApiEvent (Maybe Text)
   | UserCommand UserCommand
 
-data UserCommand = SendInit | Exit
+type ApiEvent = Maybe Text
+data UserCommand = SendInit Int | Exit
 
-wsReceiver :: Connection -> Chan AppEvent -> IO ()
-wsReceiver ws chan = go
+apiReader :: IO Text -> (ApiEvent -> IO ()) -> IO ()
+apiReader nextServerEvent enqueue = go
   where
     go = do
-      result <- try $ receiveData ws
+      result <- try @ConnectionException nextServerEvent
       case result of
-        Left e -> writeChan chan (WsError e)
+        Left e -> do
+          putStrLn $ "node connection error: " <> show e
+          enqueue Nothing
         Right o -> do
-          writeChan chan (WsOutput o)
+          enqueue $ Just o
           go
 
-commandReader :: Chan AppEvent -> IO ()
-commandReader chan = go
+commandReader :: (UserCommand -> IO ()) -> IO ()
+commandReader enqueue = go
   where
     go = do
-      result <- try @SomeException $ getLine
+      result <- try @SomeException getLine
       case result of
         Left ex -> do
           case fromException ex of
             Just io | isEOFError io -> return ()
             _ -> putStrLn $ "input error: " <> displayException ex
-          submit Exit
+          enqueue Exit
 
-        Right command -> case command of
-          "exit" -> submit Exit
-          "init" -> submit SendInit >> go
+        Right command -> case words command of
+          ["exit"] -> enqueue Exit
+          ["init", str] | [(period, "")] <- reads str -> do
+            enqueue $ SendInit period
+            go
           cmd -> do
-            putStrLn $ "input: unknown command " <> cmd
+            putStrLn $ "input: unknown command " <> show cmd
             go
 
-    submit = writeChan chan . UserCommand
-
-eventProcessor :: Connection -> Chan AppEvent -> IO ()
-eventProcessor ws events = go
+eventProcessor :: (ClientInput -> IO ()) -> IO AppEvent -> IO ()
+eventProcessor submitCommand nextEvent = go
   where
     go = do
-      event <- readChan events
+      event <- nextEvent
       case event of
-        WsOutput serverOutput -> do
-          Text.putStrLn ("node output: " <> serverOutput)
-          go
-        WsError e -> putStrLn $ "node connection error: " <> show e
+        ApiEvent apiEvent ->
+          case apiEvent of
+            Just serverOutput -> do
+              Text.putStrLn ("node output: " <> serverOutput)
+              go
+            Nothing -> return ()
+
         UserCommand command ->
           case command of
             Exit -> return ()
-            SendInit -> do
-              sendTextData ws $ Aeson.encode $ Init 10
+            SendInit period -> do
+              submitCommand $ Init period
               go
