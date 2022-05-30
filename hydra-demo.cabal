@@ -93,6 +93,7 @@ executable hydra-rps-game
     , aeson
     , bytestring
     , cardano-api
+    , containers
     , hydra-demo
     , text
     , websockets
