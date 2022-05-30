@@ -50,6 +50,7 @@ data ClientInput
   | GetUTxO
   | Close
   | Contest
+  | Fanout
   deriving stock (Generic)
   deriving anyclass (Aeson.ToJSON)
 
@@ -72,6 +73,7 @@ data UserCommand =
   | Exit
   | AbortHead
   | CloseHead
+  | IssueFanout
 
 apiReader :: IO Text -> (ApiEvent -> IO ()) -> IO ()
 apiReader nextServerEvent enqueue = go
@@ -102,6 +104,7 @@ commandReader enqueue = go
           ["exit"] -> enqueue Exit
           ["abort"] -> enqueue AbortHead >> go
           ["close"] -> enqueue CloseHead >> go
+          ["fanout"] -> enqueue IssueFanout >> go
           ["init", str] | [(period, "")] <- reads str -> do
             enqueue $ InitHead period
             go
@@ -133,6 +136,7 @@ eventProcessor submitCommand nextEvent = go
             Exit -> return ()
             AbortHead -> submitCommand Abort >> go
             CloseHead -> submitCommand Close >> go
+            IssueFanout -> submitCommand Fanout >> go
             InitHead period -> do
               submitCommand $ Init period
               go
