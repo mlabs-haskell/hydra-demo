@@ -7,10 +7,12 @@ import Cardano.Api (AlonzoEra, AsType (AsAddressInEra, AsAlonzoEra), Lovelace (L
 import Control.Concurrent (forkIO, newChan, readChan, writeChan)
 import Control.Exception (SomeException, displayException, fromException, try)
 import Data.Aeson qualified as Aeson (ToJSON, encode, toJSON)
+import Data.ByteString.Lazy qualified as ByteString (toStrict)
 import Data.Functor (void)
 import Data.Map qualified as Map (singleton)
 import Data.String (fromString)
 import Data.Text (Text)
+import Data.Text.Encoding (decodeUtf8)
 import Data.Text.IO qualified as Text (putStrLn)
 import GHC.Generics (Generic)
 import Network.WebSockets (ConnectionException, receiveData, sendTextData, runClient)
@@ -25,10 +27,20 @@ main :: IO ()
 main = do
   nodeHost : nodePort : _ <- getArgs
   runClient nodeHost (read nodePort) "/" $ \ws -> do
+    let nextServerEvent = receiveData ws
+        submitCommand input = do
+          let json = Aeson.encode input
+          Text.putStrLn $ "client input: " <> decodeUtf8 (ByteString.toStrict json)
+          sendTextData ws json
+
     events <- newChan
-    void $ forkIO $ apiReader (receiveData ws) (writeChan events . ApiEvent)
-    void $ forkIO $ commandReader (writeChan events . UserCommand)
-    eventProcessor (sendTextData ws . Aeson.encode) (readChan events)
+    let enqueueApiEvent = writeChan events . ApiEvent
+        enqueuUserCommand = writeChan events . UserCommand
+        nextEvent = readChan events
+
+    void $ forkIO $ apiReader nextServerEvent enqueueApiEvent
+    void $ forkIO $ commandReader enqueuUserCommand
+    eventProcessor submitCommand nextEvent
 
 data ClientInput
   = Init {contestationPeriod :: Int}
