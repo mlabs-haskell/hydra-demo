@@ -20,9 +20,14 @@ import Data.Function (($), (.))
 import Data.Maybe (Maybe (..))
 import Data.String (String)
 import Data.Text (Text)
-import Ledger qualified (Address, toCardanoAPIData, PubKeyHash)
+import Ledger qualified (Address, PubKeyHash, toCardanoAPIData)
 import Ledger.Scripts (Validator (getValidator))
-import Ledger.Tx.CardanoAPI (ToCardanoError (DeserialisationError), toCardanoAddress, toCardanoScriptInEra, fromCardanoPaymentKeyHash)
+import Ledger.Tx.CardanoAPI (
+  ToCardanoError (DeserialisationError),
+  fromCardanoPaymentKeyHash,
+  toCardanoAddress,
+  toCardanoScriptInEra,
+ )
 import PlutusTx qualified (ToData, toBuiltinData)
 
 baseBodyContent :: TxBodyContent BuildTx AlonzoEra

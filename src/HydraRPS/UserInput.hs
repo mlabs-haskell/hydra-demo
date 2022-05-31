@@ -1,8 +1,9 @@
 {-# LANGUAGE DeriveAnyClass #-}
+
 module HydraRPS.UserInput (
   ClaimInput (..),
   ClaimParams (..),
-  PlayParams (..)
+  PlayParams (..),
 ) where
 
 import Cardano.Api (TxIn)

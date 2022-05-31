@@ -1,16 +1,17 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+
 module HydraRPS.Node.Command (
-    Command (
-      Init,
-      Abort,
-      Commit,
-      GetUTxO,
-      Close,
-      Contest,
-      Fanout
-    ),
-    newTx
+  Command (
+    Init,
+    Abort,
+    Commit,
+    GetUTxO,
+    Close,
+    Contest,
+    Fanout
+  ),
+  newTx,
 ) where
 
 import Cardano.Api (AlonzoEra, Tx, UTxO, serialiseToCBOR)

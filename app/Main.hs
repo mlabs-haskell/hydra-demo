@@ -1,9 +1,19 @@
 module Main (main) where
 
-import Cardano.Api (AlonzoEra, AsType (AsAddressInEra, AsAlonzoEra, AsSigningKey, AsPaymentKey), NetworkId (Testnet), NetworkMagic (NetworkMagic), Lovelace (Lovelace), UTxO (UTxO), TxIn, deserialiseAddress, readFileTextEnvelope)
+import Cardano.Api (
+  AlonzoEra,
+  AsType (AsAddressInEra, AsAlonzoEra, AsPaymentKey, AsSigningKey),
+  Lovelace (Lovelace),
+  NetworkId (Testnet),
+  NetworkMagic (NetworkMagic),
+  TxIn,
+  UTxO (UTxO),
+  deserialiseAddress,
+  readFileTextEnvelope,
+ )
 import Control.Concurrent (forkIO, newChan, readChan, writeChan)
 import Control.Exception (SomeException, displayException, fromException, try)
-import Data.Aeson qualified as Aeson (FromJSON, encode, decodeStrict)
+import Data.Aeson qualified as Aeson (FromJSON, decodeStrict, encode)
 import Data.ByteString.Lazy qualified as ByteString (toStrict)
 import Data.Functor (void)
 import Data.Map qualified as Map (singleton)
@@ -11,13 +21,13 @@ import Data.String (fromString)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Text.IO qualified as Text (putStrLn)
-import Network.WebSockets (ConnectionException, receiveData, sendTextData, runClient)
+import Network.WebSockets (ConnectionException, receiveData, runClient, sendTextData)
 import System.Environment (getArgs)
 import System.IO.Error (isEOFError)
 
-import HydraRPS.UserInput qualified as UserInput
 import HydraRPS.Node.Command qualified as NodeCommand
 import HydraRPS.Tx (UserCredentials (..), mkUserCredentials, parseTxIn, txOutToAddress)
+import HydraRPS.UserInput qualified as UserInput
 
 import Prelude
 
@@ -43,13 +53,13 @@ main = do
     void $ forkIO $ commandReader enqueuUserCommand
     eventProcessor userCreds submitCommand nextEvent
 
-data AppEvent =
-    ApiEvent (Maybe Text)
+data AppEvent
+  = ApiEvent (Maybe Text)
   | UserCommand UserCommand
 
 type ApiEvent = Maybe Text
-data UserCommand =
-    InitHead Int
+data UserCommand
+  = InitHead Int
   | CommitToHead (UTxO AlonzoEra)
   | Exit
   | AbortHead
@@ -82,7 +92,6 @@ commandReader enqueue = go
             Just io | isEOFError io -> return ()
             _ -> putStrLn $ "input error: " <> displayException ex
           enqueue Exit
-
         Right command -> case words command of
           ["exit"] -> enqueue Exit
           ["abort"] -> enqueue AbortHead >> go
@@ -93,13 +102,15 @@ commandReader enqueue = go
             go
           ["commit", txInStr, addrStr, lovelaceStr]
             | Right txIn <- parseTxIn (fromString txInStr)
-            , Just addr <- deserialiseAddress (AsAddressInEra AsAlonzoEra) (fromString addrStr)
-            , [(lovelace, "")] <- reads lovelaceStr -> do
+              , Just addr <- deserialiseAddress (AsAddressInEra AsAlonzoEra) (fromString addrStr)
+              , [(lovelace, "")] <- reads lovelaceStr -> do
               enqueue $ CommitToHead $ UTxO $ Map.singleton txIn (txOutToAddress addr (Lovelace lovelace))
               go
           "bet" : txInStr : ppStr
             | Right txIn <- parseTxIn (fromString txInStr)
-            , Just pp <- parseJsonArgs ppStr -> enqueue (Bet txIn pp) >> go
+              , Just pp <- parseJsonArgs ppStr -> do
+              enqueue (Bet txIn pp)
+              go
           "claim" : cpStr | Just cp <- parseJsonArgs cpStr -> enqueue (Claim cp) >> go
           cmd -> do
             putStrLn $ "input: unknown command " <> show cmd
@@ -120,7 +131,6 @@ eventProcessor _userCreds submit nextEvent = go
               Text.putStrLn ("node output: " <> serverOutput)
               go
             Nothing -> return ()
-
         UserCommand command ->
           case command of
             Exit -> return ()
