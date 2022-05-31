@@ -11,11 +11,12 @@ import Cardano.Api (
   deserialiseAddress,
   readFileTextEnvelope,
  )
-import Control.Concurrent (forkIO, newChan, readChan, writeChan)
+import Control.Concurrent (newChan, readChan, writeChan)
+import Control.Concurrent.Async (AsyncCancelled (AsyncCancelled), withAsync)
 import Control.Exception (SomeException, displayException, fromException, try)
+import Control.Monad (when)
 import Data.Aeson qualified as Aeson (FromJSON, decodeStrict, encode)
 import Data.ByteString.Lazy qualified as LazyByteString (ByteString, toStrict)
-import Data.Functor (void)
 import Data.Map qualified as Map (singleton)
 import Data.String (fromString)
 import Data.Text (Text)
@@ -55,15 +56,15 @@ main = do
     let enqueueApiEvent :: Maybe Text -> IO ()
         enqueueApiEvent = writeChan events . ApiEvent
 
-        enqueuUserCommand :: UserCommand -> IO ()
-        enqueuUserCommand = writeChan events . UserCommand
+        enqueueUserCommand :: UserCommand -> IO ()
+        enqueueUserCommand = writeChan events . UserCommand
 
         nextEvent :: IO AppEvent
         nextEvent = readChan events
 
-    void $ forkIO $ apiReader nextServerEvent enqueueApiEvent
-    void $ forkIO $ commandReader enqueuUserCommand
-    eventProcessor userCreds submitCommand nextEvent
+    withAsync (apiReader nextServerEvent enqueueApiEvent) $ \_ ->
+      withAsync (commandReader enqueueUserCommand) $ \_ ->
+        eventProcessor userCreds submitCommand nextEvent
 
 data AppEvent
   = ApiEvent (Maybe Text)
@@ -93,6 +94,12 @@ apiReader nextServerEvent enqueue = go
           enqueue $ Just o
           go
 
+unexpectedInputException :: SomeException -> Bool
+unexpectedInputException ex
+  | Just io <- fromException ex, isEOFError io = False
+  | Just AsyncCancelled <- fromException ex = False
+  | otherwise = False
+
 commandReader :: (UserCommand -> IO ()) -> IO ()
 commandReader enqueue = go
   where
@@ -100,9 +107,8 @@ commandReader enqueue = go
       result <- try @SomeException getLine
       case result of
         Left ex -> do
-          case fromException ex of
-            Just io | isEOFError io -> return ()
-            _ -> putStrLn $ "input error: " <> displayException ex
+          when (unexpectedInputException ex) $
+            putStrLn $ "input error: " <> displayException ex
           enqueue Exit
         Right command -> case words command of
           ["exit"] -> enqueue Exit

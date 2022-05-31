@@ -93,6 +93,7 @@ executable hydra-rps-game
   main-is:        Main.hs
   build-depends:
     , aeson
+    , async
     , bytestring
     , cardano-api
     , containers
