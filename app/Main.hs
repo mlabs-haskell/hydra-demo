@@ -1,12 +1,9 @@
-{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE PatternSynonyms #-}
-module Main (main, ClientInput (NewTxCBOR)) where
+module Main (main) where
 
-import Cardano.Api (AlonzoEra, AsType (AsAddressInEra, AsAlonzoEra, AsSigningKey, AsPaymentKey), NetworkId (Testnet), NetworkMagic (NetworkMagic), Lovelace (Lovelace), UTxO (UTxO), Tx, TxIn, deserialiseAddress, serialiseToCBOR, readFileTextEnvelope)
+import Cardano.Api (AlonzoEra, AsType (AsAddressInEra, AsAlonzoEra, AsSigningKey, AsPaymentKey), NetworkId (Testnet), NetworkMagic (NetworkMagic), Lovelace (Lovelace), UTxO (UTxO), TxIn, deserialiseAddress, readFileTextEnvelope)
 import Control.Concurrent (forkIO, newChan, readChan, writeChan)
 import Control.Exception (SomeException, displayException, fromException, try)
-import Data.Aeson qualified as Aeson (FromJSON, ToJSON, encode, decodeStrict, toJSON)
+import Data.Aeson qualified as Aeson (FromJSON, encode, decodeStrict)
 import Data.ByteString.Lazy qualified as ByteString (toStrict)
 import Data.Functor (void)
 import Data.Map qualified as Map (singleton)
@@ -14,13 +11,12 @@ import Data.String (fromString)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Text.IO qualified as Text (putStrLn)
-import GHC.Generics (Generic)
-import Ledger (PubKeyHash)
 import Network.WebSockets (ConnectionException, receiveData, sendTextData, runClient)
 import System.Environment (getArgs)
 import System.IO.Error (isEOFError)
 
-import HydraRPS.OffChain (PlayParams (..))
+import HydraRPS.UserInput qualified as UserInput
+import HydraRPS.Node.Command qualified as NodeCommand
 import HydraRPS.Tx (UserCredentials (..), mkUserCredentials, parseTxIn, txOutToAddress)
 
 import Prelude
@@ -47,26 +43,6 @@ main = do
     void $ forkIO $ commandReader enqueuUserCommand
     eventProcessor userCreds submitCommand nextEvent
 
-data ClientInput
-  = Init {contestationPeriod :: Int}
-  | Abort
-  | Commit {utxo :: UTxO AlonzoEra}
-  | NewTx {transaction :: TxCBOR}
-  | GetUTxO
-  | Close
-  | Contest
-  | Fanout
-  deriving stock (Generic)
-  deriving anyclass (Aeson.ToJSON)
-
-pattern NewTxCBOR :: Tx AlonzoEra -> ClientInput
-pattern NewTxCBOR tx = NewTx (TxCBOR tx)
-
-newtype TxCBOR = TxCBOR {getTx :: Tx AlonzoEra}
-
-instance Aeson.ToJSON TxCBOR where
-  toJSON = Aeson.toJSON . serialiseToCBOR . getTx
-
 data AppEvent =
     ApiEvent (Maybe Text)
   | UserCommand UserCommand
@@ -79,23 +55,8 @@ data UserCommand =
   | AbortHead
   | CloseHead
   | IssueFanout
-  | Bet TxIn PlayParams
-  | Claim ClaimParams
-
-data ClaimInput = ClaimInput
-  { _txIn :: TxIn
-  , _pkh :: PubKeyHash
-  , _playParams :: PlayParams
-  }
-  deriving stock (Generic)
-  deriving anyclass (Aeson.FromJSON)
-
-data ClaimParams = ClaimParams
-  { _myInput :: ClaimInput
-  , _theirInput :: ClaimInput
-  }
-  deriving stock (Generic)
-  deriving anyclass (Aeson.FromJSON)
+  | Bet TxIn UserInput.PlayParams
+  | Claim UserInput.ClaimParams
 
 apiReader :: IO Text -> (ApiEvent -> IO ()) -> IO ()
 apiReader nextServerEvent enqueue = go
@@ -147,8 +108,8 @@ commandReader enqueue = go
     parseJsonArgs :: Aeson.FromJSON a => [String] -> Maybe a
     parseJsonArgs = Aeson.decodeStrict . encodeUtf8 . fromString . unwords
 
-eventProcessor :: UserCredentials -> (ClientInput -> IO ()) -> IO AppEvent -> IO ()
-eventProcessor _userCreds submitCommand nextEvent = go
+eventProcessor :: UserCredentials -> (NodeCommand.Command -> IO ()) -> IO AppEvent -> IO ()
+eventProcessor _userCreds submit nextEvent = go
   where
     go = do
       event <- nextEvent
@@ -163,14 +124,10 @@ eventProcessor _userCreds submitCommand nextEvent = go
         UserCommand command ->
           case command of
             Exit -> return ()
-            AbortHead -> submitCommand Abort >> go
-            CloseHead -> submitCommand Close >> go
-            IssueFanout -> submitCommand Fanout >> go
-            InitHead period -> do
-              submitCommand $ Init period
-              go
-            CommitToHead utxoToCommit -> do
-              submitCommand $ Commit utxoToCommit
-              go
-            Bet _txIn _pp -> putStrLn "no betting yet"
-            Claim _cp -> putStrLn "no claiming yet"
+            AbortHead -> submit NodeCommand.Abort >> go
+            CloseHead -> submit NodeCommand.Close >> go
+            IssueFanout -> submit NodeCommand.Fanout >> go
+            InitHead period -> submit (NodeCommand.Init period) >> go
+            CommitToHead utxoToCommit -> submit (NodeCommand.Commit utxoToCommit) >> go
+            Bet _txIn _pp -> putStrLn "no betting yet" >> go
+            Claim _cp -> putStrLn "no claiming yet" >> go

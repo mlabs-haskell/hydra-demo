@@ -66,9 +66,11 @@ common common-lang
 library
   import:          common-lang
   exposed-modules:
+    HydraRPS.Node.Command
     HydraRPS.OffChain
     HydraRPS.OnChain
     HydraRPS.Tx
+    HydraRPS.UserInput
 
   build-depends:
     , aeson
