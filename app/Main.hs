@@ -98,7 +98,7 @@ unexpectedInputException :: SomeException -> Bool
 unexpectedInputException ex
   | Just io <- fromException ex, isEOFError io = False
   | Just AsyncCancelled <- fromException ex = False
-  | otherwise = False
+  | otherwise = True
 
 commandReader :: (UserCommand -> IO ()) -> IO ()
 commandReader enqueue = go
