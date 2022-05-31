@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module HydraRPS.UserInput (
   ClaimInput (..),
@@ -7,6 +8,7 @@ module HydraRPS.UserInput (
 ) where
 
 import Cardano.Api (TxIn)
+import Control.Lens qualified as Lens
 import Data.Aeson (FromJSON)
 import GHC.Generics (Generic)
 import Ledger (PubKeyHash)
@@ -27,3 +29,6 @@ data ClaimParams = ClaimParams
   }
   deriving stock (Generic)
   deriving anyclass (FromJSON)
+
+Lens.makeLenses ''ClaimInput
+Lens.makeLenses ''ClaimParams

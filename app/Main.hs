@@ -1,56 +1,59 @@
 module Main (main) where
 
-import Cardano.Api (
-  AlonzoEra,
-  AsType (AsAddressInEra, AsAlonzoEra, AsPaymentKey, AsSigningKey),
-  Lovelace (Lovelace),
-  NetworkId (Testnet),
-  NetworkMagic (NetworkMagic),
-  TxIn,
-  UTxO (UTxO),
-  deserialiseAddress,
-  readFileTextEnvelope,
- )
+import Cardano.Api
+import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits))
 import Control.Concurrent (newChan, readChan, writeChan)
 import Control.Concurrent.Async (AsyncCancelled (AsyncCancelled), withAsync)
 import Control.Exception (SomeException, displayException, fromException, try)
 import Control.Monad (when)
-import Data.Aeson qualified as Aeson (FromJSON, decodeStrict, encode)
-import Data.ByteString.Lazy qualified as LazyByteString (ByteString, toStrict)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Reader.Class (MonadReader, ask)
+import Control.Monad.Trans.Reader (ReaderT, runReaderT)
+import Data.Aeson qualified as Aeson (FromJSON, ToJSON, decodeStrict, eitherDecodeFileStrict', encode)
+import Data.Bifunctor (first)
+import Data.ByteString.Lazy qualified as LazyByteString (toStrict)
+import Data.Kind (Type)
 import Data.Map qualified as Map (singleton)
+import Data.Maybe (fromMaybe)
 import Data.String (fromString)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Text.IO qualified as Text (putStrLn)
+import Ledger qualified (PubKeyHash)
+import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash)
 import Network.WebSockets (ConnectionException, receiveData, runClient, sendTextData)
 import System.Environment (getArgs)
 import System.IO.Error (isEOFError)
 
 import HydraRPS.Node.Command qualified as NodeCommand
-import HydraRPS.Tx (UserCredentials (..), mkUserCredentials, parseTxIn, txOutToAddress)
+import HydraRPS.OnChain (GameDatum (..), GameRedeemer (..), encryptGesture, winnerValidator)
+import HydraRPS.Tx (TxDatum (..), TxRedeemer (..), baseBodyContent, parseTxIn, signTx, txInForValidator, txOutToAddress)
 import HydraRPS.UserInput qualified as UserInput
 
 import Prelude
 
 main :: IO ()
 main = do
-  nodeHost : nodePort : keyFile : _ <- getArgs
+  nodeHost : nodePort : keyFile : protocolParamsFile : _ <- getArgs
   skey <- either (fail . show) pure =<< readFileTextEnvelope (AsSigningKey AsPaymentKey) keyFile
+  pparamsResult <- either (fail . show) pure =<< Aeson.eitherDecodeFileStrict' protocolParamsFile
   let networkId :: NetworkId
       networkId = Testnet (NetworkMagic 42)
 
       userCreds :: UserCredentials
       userCreds = mkUserCredentials networkId skey
+
+      headState :: HeadState
+      headState = HeadState userCreds networkId pparamsResult
   runClient nodeHost (read nodePort) "/" $ \ws -> do
     let nextServerEvent :: IO Text
         nextServerEvent = receiveData ws
 
-        submitCommand :: NodeCommand.Command -> IO ()
+        submitCommand :: (MonadIO m, Aeson.ToJSON a) => a -> m ()
         submitCommand input = do
-          let json :: LazyByteString.ByteString
-              json = Aeson.encode input
-          Text.putStrLn $ "node command: " <> decodeUtf8 (LazyByteString.toStrict json)
-          sendTextData ws json
+          let json = Aeson.encode input
+          liftIO $ Text.putStrLn $ "client input: " <> decodeUtf8 (LazyByteString.toStrict json)
+          liftIO $ sendTextData ws json
 
     events <- newChan
     let enqueueApiEvent :: Maybe Text -> IO ()
@@ -64,7 +67,18 @@ main = do
 
     withAsync (apiReader nextServerEvent enqueueApiEvent) $ \_ ->
       withAsync (commandReader enqueueUserCommand) $ \_ ->
-        eventProcessor userCreds submitCommand nextEvent
+        runInHead headState (eventProcessor submitCommand nextEvent)
+
+data HeadState = HeadState
+  { hsUserCredentials :: UserCredentials
+  , hsNetworkId :: NetworkId
+  , hsProtocolParams :: ProtocolParameters
+  }
+
+newtype HeadM a = HeadM {unHeadM :: ReaderT HeadState IO a} deriving newtype (Functor, Applicative, Monad, MonadIO, MonadReader HeadState)
+
+runInHead :: HeadState -> HeadM a -> IO a
+runInHead c ba = runReaderT (unHeadM ba) c
 
 data AppEvent
   = ApiEvent (Maybe Text)
@@ -79,7 +93,20 @@ data UserCommand
   | CloseHead
   | IssueFanout
   | Bet TxIn UserInput.PlayParams
-  | Claim UserInput.ClaimParams
+  | Claim TxIn UserInput.ClaimParams
+
+data UserCredentials = UserCredentials
+  { userSkey :: SigningKey PaymentKey
+  , userPubKeyHash :: Ledger.PubKeyHash
+  , userAddress :: AddressInEra AlonzoEra
+  }
+
+mkUserCredentials :: NetworkId -> SigningKey PaymentKey -> UserCredentials
+mkUserCredentials networkId skey = UserCredentials skey pkh addr
+  where
+    vkeyHash = verificationKeyHash (getVerificationKey skey)
+    pkh = fromCardanoPaymentKeyHash vkeyHash
+    addr = makeShelleyAddressInEra networkId (PaymentCredentialByKey vkeyHash) NoStakeAddress
 
 apiReader :: IO Text -> (ApiEvent -> IO ()) -> IO ()
 apiReader nextServerEvent enqueue = go
@@ -129,7 +156,10 @@ commandReader enqueue = go
               , Just pp <- parseJsonArgs ppStr -> do
               enqueue (Bet txIn pp)
               go
-          "claim" : cpStr | Just cp <- parseJsonArgs cpStr -> enqueue (Claim cp) >> go
+          "claim" : collateralTxInStr : cpStr
+            | Right collateralTxIn <- parseTxIn (fromString collateralTxInStr)
+              , Just cp <- parseJsonArgs cpStr ->
+              enqueue (Claim collateralTxIn cp) >> go
           cmd -> do
             putStrLn $ "input: unknown command " <> show cmd
             go
@@ -137,16 +167,17 @@ commandReader enqueue = go
     parseJsonArgs :: Aeson.FromJSON a => [String] -> Maybe a
     parseJsonArgs = Aeson.decodeStrict . encodeUtf8 . fromString . unwords
 
-eventProcessor :: UserCredentials -> (NodeCommand.Command -> IO ()) -> IO AppEvent -> IO ()
-eventProcessor _userCreds submit nextEvent = go
+eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> IO AppEvent -> m ()
+eventProcessor submit nextEvent = go
   where
+    go :: m ()
     go = do
-      event <- nextEvent
+      event <- liftIO nextEvent
       case event of
         ApiEvent apiEvent ->
           case apiEvent of
             Just serverOutput -> do
-              Text.putStrLn ("node output: " <> serverOutput)
+              liftIO $ Text.putStrLn ("node output: " <> serverOutput)
               go
             Nothing -> return ()
         UserCommand command ->
@@ -157,5 +188,38 @@ eventProcessor _userCreds submit nextEvent = go
             IssueFanout -> submit NodeCommand.Fanout >> go
             InitHead period -> submit (NodeCommand.Init period) >> go
             CommitToHead utxoToCommit -> submit (NodeCommand.Commit utxoToCommit) >> go
-            Bet _txIn _pp -> putStrLn "no betting yet" >> go
-            Claim _cp -> putStrLn "no claiming yet" >> go
+            Bet _txIn _pp -> liftIO (putStrLn "no betting yet") >> go
+            Claim collateralTxIn cp -> do
+              state <- ask
+              let unsignedTx = either error id $ buildClaimTx collateralTxIn state cp
+                  signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
+              submit (NodeCommand.newTx signedTx) >> go
+
+betConstant :: Lovelace
+betConstant = 10000000
+
+buildClaimTx :: TxIn -> HeadState -> UserInput.ClaimParams -> Either String (TxBody AlonzoEra)
+buildClaimTx collateralTxIn state cp = do
+  let myTxIn = cp.myInput.txIn
+      myDatum = GameDatum (encryptGesture cp.myInput.playParams.ppGesture cp.myInput.playParams.ppSalt) cp.myInput.pkh
+      theirTxIn = cp.theirInput.txIn
+      theirDatum = GameDatum (encryptGesture cp.theirInput.playParams.ppGesture cp.theirInput.playParams.ppSalt) cp.theirInput.pkh
+      redeemer = GameRedeemer (cp.myInput.pkh, cp.myInput.playParams.ppSalt) (cp.theirInput.pkh, cp.theirInput.playParams.ppSalt)
+      exUnits = fromMaybe ExecutionUnits {executionSteps = 0, executionMemory = 0} $ protocolParamMaxTxExUnits state.hsProtocolParams
+      outAddress = state.hsUserCredentials.userAddress
+
+  myValidatorTxIn <-
+    first (("bad script: " <>) . show) $
+      txInForValidator myTxIn winnerValidator (TxDatum myDatum) (TxRedeemer redeemer) exUnits
+  theirValidatorIxIn <-
+    first (("bad script: " <>) . show) $
+      txInForValidator theirTxIn winnerValidator (TxDatum theirDatum) (TxRedeemer redeemer) exUnits
+
+  let bodyContent =
+        baseBodyContent
+          { txIns = [myValidatorTxIn, theirValidatorIxIn]
+          , txInsCollateral = TxInsCollateral CollateralInAlonzoEra [collateralTxIn]
+          , txOuts = [txOutToAddress outAddress (2 * betConstant)]
+          , txProtocolParams = BuildTxWith (Just state.hsProtocolParams)
+          }
+  first (("bad tx-body: " <>) . show) $ makeTransactionBody bodyContent

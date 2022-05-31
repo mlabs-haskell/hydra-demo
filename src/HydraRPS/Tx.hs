@@ -1,10 +1,9 @@
 module HydraRPS.Tx (
   TxDatum (..),
   TxRedeemer (..),
-  UserCredentials (..),
-  mkUserCredentials,
   baseBodyContent,
   parseTxIn,
+  parseAddress,
   signTx,
   txInForSpending,
   txInForValidator,
@@ -17,14 +16,13 @@ import Control.Applicative (pure)
 import Data.Aeson (Result (..), Value (String), fromJSON)
 import Data.Either (Either (..))
 import Data.Function (($), (.))
-import Data.Maybe (Maybe (..))
+import Data.Maybe (Maybe (..), maybe)
 import Data.String (String)
 import Data.Text (Text)
-import Ledger qualified (Address, PubKeyHash, toCardanoAPIData)
+import Ledger qualified (Address, toCardanoAPIData)
 import Ledger.Scripts (Validator (getValidator))
 import Ledger.Tx.CardanoAPI (
   ToCardanoError (DeserialisationError),
-  fromCardanoPaymentKeyHash,
   toCardanoAddress,
   toCardanoScriptInEra,
  )
@@ -106,15 +104,5 @@ signTx signingKey body = Tx body [witness]
 toCardanoData :: PlutusTx.ToData a => a -> ScriptData
 toCardanoData = Ledger.toCardanoAPIData . PlutusTx.toBuiltinData
 
-data UserCredentials = UserCredentials
-  { userSkey :: SigningKey PaymentKey
-  , userPubKeyHash :: Ledger.PubKeyHash
-  , userAddress :: AddressInEra AlonzoEra
-  }
-
-mkUserCredentials :: NetworkId -> SigningKey PaymentKey -> UserCredentials
-mkUserCredentials networkId skey = UserCredentials skey pkh addr
-  where
-    vkeyHash = verificationKeyHash (getVerificationKey skey)
-    pkh = fromCardanoPaymentKeyHash vkeyHash
-    addr = makeShelleyAddressInEra networkId (PaymentCredentialByKey vkeyHash) NoStakeAddress
+parseAddress :: err -> Text -> Either err (AddressInEra AlonzoEra)
+parseAddress err addressText = maybe (Left err) Right $ deserialiseAddress (AsAddressInEra AsAlonzoEra) addressText

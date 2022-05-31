@@ -98,8 +98,11 @@ executable hydra-rps-game
     , cardano-api
     , containers
     , hydra-demo
+    , lens
     , plutus-ledger
     , text
+    , transformers
+    , mtl
     , websockets
 
   hs-source-dirs: app

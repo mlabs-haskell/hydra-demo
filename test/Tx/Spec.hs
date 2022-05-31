@@ -6,7 +6,6 @@ import Data.Aeson (eitherDecodeFileStrict')
 import Data.Bifunctor (first)
 import Data.ByteString qualified as ByteString (readFile)
 import Data.Maybe (fromMaybe)
-import Data.Text (Text)
 import System.FilePath ((</>))
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -36,7 +35,6 @@ tests =
         -}
         lockTxBodyCBOR <- ByteString.readFile $ dataFile "lock-tx-body.cbor"
         (serialiseToCBOR <$> lockTxBodyBuilder) @?= Right lockTxBodyCBOR
-
     , testCase "spend a script output" $ do
         {-
           obtained with
@@ -68,7 +66,6 @@ tests =
         pparamsResult <- eitherDecodeFileStrict' $ dataFile "protocol-parameters.json"
         let txBodyResult = pparamsResult >>= spendTxBodyBuilder
         (serialiseToCBOR <$> txBodyResult) @?= Right spendTxBodyCBOR
-
     , testCase "sign a transaction" $ do
         lockSignedTxCBOR <- ByteString.readFile $ dataFile "lock-signed-tx.cbor"
         skey <- either (assertFailure . show) pure =<< readFileTextEnvelope (AsSigningKey AsPaymentKey) (dataFile "alice.sk")
@@ -77,9 +74,6 @@ tests =
 
 dataFile :: FilePath -> FilePath
 dataFile name = "test" </> "data" </> "tx" </> name
-
-parseAddress :: err -> Text -> Either err (AddressInEra AlonzoEra)
-parseAddress err addressText = maybe (Left err) Right $ deserialiseAddress (AsAddressInEra AsAlonzoEra) addressText
 
 networkId :: NetworkId
 networkId = Testnet (NetworkMagic 42)
