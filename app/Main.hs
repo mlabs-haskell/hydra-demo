@@ -14,7 +14,7 @@ import Cardano.Api (
 import Control.Concurrent (forkIO, newChan, readChan, writeChan)
 import Control.Exception (SomeException, displayException, fromException, try)
 import Data.Aeson qualified as Aeson (FromJSON, decodeStrict, encode)
-import Data.ByteString.Lazy qualified as ByteString (toStrict)
+import Data.ByteString.Lazy qualified as LazyByteString (ByteString, toStrict)
 import Data.Functor (void)
 import Data.Map qualified as Map (singleton)
 import Data.String (fromString)
@@ -35,18 +35,30 @@ main :: IO ()
 main = do
   nodeHost : nodePort : keyFile : _ <- getArgs
   skey <- either (fail . show) pure =<< readFileTextEnvelope (AsSigningKey AsPaymentKey) keyFile
-  let networkId = Testnet (NetworkMagic 42)
+  let networkId :: NetworkId
+      networkId = Testnet (NetworkMagic 42)
+
+      userCreds :: UserCredentials
       userCreds = mkUserCredentials networkId skey
   runClient nodeHost (read nodePort) "/" $ \ws -> do
-    let nextServerEvent = receiveData ws
+    let nextServerEvent :: IO Text
+        nextServerEvent = receiveData ws
+
+        submitCommand :: NodeCommand.Command -> IO ()
         submitCommand input = do
-          let json = Aeson.encode input
-          Text.putStrLn $ "client input: " <> decodeUtf8 (ByteString.toStrict json)
+          let json :: LazyByteString.ByteString
+              json = Aeson.encode input
+          Text.putStrLn $ "node command: " <> decodeUtf8 (LazyByteString.toStrict json)
           sendTextData ws json
 
     events <- newChan
-    let enqueueApiEvent = writeChan events . ApiEvent
+    let enqueueApiEvent :: Maybe Text -> IO ()
+        enqueueApiEvent = writeChan events . ApiEvent
+
+        enqueuUserCommand :: UserCommand -> IO ()
         enqueuUserCommand = writeChan events . UserCommand
+
+        nextEvent :: IO AppEvent
         nextEvent = readChan events
 
     void $ forkIO $ apiReader nextServerEvent enqueueApiEvent
