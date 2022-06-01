@@ -216,6 +216,7 @@ mkSignedTx state = signTx state.hsUserCredentials.userSkey
 betConstant :: Lovelace
 betConstant = 10000000
 
+{-# ANN gameDatum "HLint: ignore Eta reduce" #-}
 gameDatum :: UserInput.PlayParams -> Ledger.PubKeyHash -> GameDatum
 gameDatum playParams pkh = GameDatum (encryptGesture playParams.ppGesture playParams.ppSalt) pkh
 
@@ -224,8 +225,9 @@ buildBetTx :: TxIn -> Lovelace -> HeadState -> UserInput.PlayParams -> Either St
 buildBetTx txIn txInLovelace state playParams = do
   let changeAddress = state.hsUserCredentials.userAddress
       datum = gameDatum playParams state.hsUserCredentials.userPubKeyHash
-  scriptOut <- first (("bad address specifier: " <>) . show) $
-    txOutToScript state.hsNetworkId rpsValidatorAddress betConstant (TxDatum datum)
+  scriptOut <-
+    first (("bad address specifier: " <>) . show) $
+      txOutToScript state.hsNetworkId rpsValidatorAddress betConstant (TxDatum datum)
   let changeOut
         | txInLovelace > betConstant = [txOutToAddress changeAddress (txInLovelace - betConstant)]
         | otherwise = []
@@ -243,12 +245,14 @@ buildClaimTx collateralTxIn state cp = do
       theirTxIn = cp.theirInput.txIn
       theirDatum = gameDatum cp.theirInput.playParams cp.theirInput.pkh
       redeemer = GameRedeemer (cp.myInput.pkh, cp.myInput.playParams.ppSalt) (cp.theirInput.pkh, cp.theirInput.playParams.ppSalt)
-      maxTxExUnits = fromMaybe ExecutionUnits {executionSteps = 0, executionMemory = 0} $
-        protocolParamMaxTxExUnits state.hsProtocolParams
-      exUnits = ExecutionUnits
-        { executionSteps = executionSteps maxTxExUnits `div` 2
-        , executionMemory = executionMemory maxTxExUnits `div` 2
-        }
+      maxTxExUnits =
+        fromMaybe ExecutionUnits {executionSteps = 0, executionMemory = 0} $
+          protocolParamMaxTxExUnits state.hsProtocolParams
+      exUnits =
+        ExecutionUnits
+          { executionSteps = executionSteps maxTxExUnits `div` 2
+          , executionMemory = executionMemory maxTxExUnits `div` 2
+          }
       outAddress = state.hsUserCredentials.userAddress
 
   myValidatorTxIn <-

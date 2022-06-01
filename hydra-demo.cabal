@@ -99,10 +99,10 @@ executable hydra-rps-game
     , containers
     , hydra-demo
     , lens
+    , mtl
     , plutus-ledger
     , text
     , transformers
-    , mtl
     , websockets
 
   hs-source-dirs: app
