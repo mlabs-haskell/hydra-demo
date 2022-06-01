@@ -45,6 +45,9 @@ main = do
 
       headState :: HeadState
       headState = HeadState userCreds networkId pparamsResult
+  putStrLn $ "user pubKeyHash " <> show userCreds.userPubKeyHash
+  Text.putStrLn $ "user address " <> serialiseAddress userCreds.userAddress
+  putStrLn ""
   runClient nodeHost (read nodePort) "/" $ \ws -> do
     let nextServerEvent :: IO Text
         nextServerEvent = receiveData ws
@@ -52,7 +55,7 @@ main = do
         submitCommand :: (MonadIO m, Aeson.ToJSON a) => a -> m ()
         submitCommand input = do
           let json = Aeson.encode input
-          liftIO $ Text.putStrLn $ "client input: " <> decodeUtf8 (LazyByteString.toStrict json)
+          liftIO $ Text.putStrLn $ "client input:\n" <> decodeUtf8 (LazyByteString.toStrict json) <> "\n"
           liftIO $ sendTextData ws json
 
     events <- newChan
@@ -138,6 +141,7 @@ commandReader enqueue = go
             putStrLn $ "input error: " <> displayException ex
           enqueue Exit
         Right command -> case words command of
+          [] -> go -- skip empty input for convenience
           ["exit"] -> enqueue Exit
           ["abort"] -> enqueue AbortHead >> go
           ["close"] -> enqueue CloseHead >> go
@@ -183,7 +187,7 @@ eventProcessor submit nextEvent = go
         ApiEvent apiEvent ->
           case apiEvent of
             Just serverOutput -> do
-              liftIO $ Text.putStrLn ("node output: " <> serverOutput)
+              liftIO $ Text.putStrLn ("node output:\n" <> serverOutput <> "\n")
               go
             Nothing -> return ()
         UserCommand command ->
