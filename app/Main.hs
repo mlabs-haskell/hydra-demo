@@ -26,8 +26,8 @@ import System.Environment (getArgs)
 import System.IO.Error (isEOFError)
 
 import HydraRPS.Node.Command qualified as NodeCommand
-import HydraRPS.OnChain (GameDatum (..), GameRedeemer (..), encryptGesture, winnerValidator)
-import HydraRPS.Tx (TxDatum (..), TxRedeemer (..), baseBodyContent, parseTxIn, signTx, txInForValidator, txOutToAddress)
+import HydraRPS.OnChain
+import HydraRPS.Tx
 import HydraRPS.UserInput qualified as UserInput
 
 import Prelude
@@ -210,10 +210,10 @@ buildClaimTx collateralTxIn state cp = do
 
   myValidatorTxIn <-
     first (("bad script: " <>) . show) $
-      txInForValidator myTxIn winnerValidator (TxDatum myDatum) (TxRedeemer redeemer) exUnits
+      txInForValidator myTxIn rpsValidator (TxDatum myDatum) (TxRedeemer redeemer) exUnits
   theirValidatorIxIn <-
     first (("bad script: " <>) . show) $
-      txInForValidator theirTxIn winnerValidator (TxDatum theirDatum) (TxRedeemer redeemer) exUnits
+      txInForValidator theirTxIn rpsValidator (TxDatum theirDatum) (TxRedeemer redeemer) exUnits
 
   let bodyContent =
         baseBodyContent
