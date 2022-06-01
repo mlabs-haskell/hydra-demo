@@ -205,7 +205,12 @@ buildClaimTx collateralTxIn state cp = do
       theirTxIn = cp.theirInput.txIn
       theirDatum = GameDatum (encryptGesture cp.theirInput.playParams.ppGesture cp.theirInput.playParams.ppSalt) cp.theirInput.pkh
       redeemer = GameRedeemer (cp.myInput.pkh, cp.myInput.playParams.ppSalt) (cp.theirInput.pkh, cp.theirInput.playParams.ppSalt)
-      exUnits = fromMaybe ExecutionUnits {executionSteps = 0, executionMemory = 0} $ protocolParamMaxTxExUnits state.hsProtocolParams
+      maxTxExUnits = fromMaybe ExecutionUnits {executionSteps = 0, executionMemory = 0} $
+        protocolParamMaxTxExUnits state.hsProtocolParams
+      exUnits = ExecutionUnits
+        { executionSteps = executionSteps maxTxExUnits `div` 2
+        , executionMemory = executionMemory maxTxExUnits `div` 2
+        }
       outAddress = state.hsUserCredentials.userAddress
 
   myValidatorTxIn <-
