@@ -256,15 +256,18 @@ mkSignedTx state = signTx state.hsUserCredentials.userSkey
 betConstant :: Lovelace
 betConstant = 10000000
 
-{-# ANN gameDatum "HLint: ignore Eta reduce" #-}
-gameDatum :: UserInput.PlayParams -> Ledger.PubKeyHash -> GameDatum
-gameDatum playParams pkh = GameDatum (encryptGesture playParams.ppGesture playParams.ppSalt) pkh
+buildDatum :: UserInput.PlayParams -> Ledger.PubKeyHash -> GameDatum
+buildDatum playParams pkh =
+  GameDatum
+    { gdGesture = encryptGesture playParams.ppGesture playParams.ppSalt
+    , gdPkh = pkh
+    }
 
 -- precondition: txInLovelace >= betConstant
 buildBetTx :: TxIn -> Lovelace -> HeadState -> UserInput.PlayParams -> Either String (TxBody AlonzoEra)
 buildBetTx txIn txInLovelace state playParams = do
   let changeAddress = state.hsUserCredentials.userAddress
-      datum = gameDatum playParams state.hsUserCredentials.userPubKeyHash
+      datum = buildDatum playParams state.hsUserCredentials.userPubKeyHash
   scriptOut <-
     first (("bad address specifier: " <>) . show) $
       txOutToScript state.hsNetworkId rpsValidatorAddress betConstant (TxDatum datum)
@@ -281,9 +284,9 @@ buildBetTx txIn txInLovelace state playParams = do
 buildClaimTx :: TxIn -> HeadState -> UserInput.ClaimParams -> Either String (TxBody AlonzoEra)
 buildClaimTx collateralTxIn state cp = do
   let myTxIn = cp.myInput.txIn
-      myDatum = gameDatum cp.myInput.playParams cp.myInput.pkh
+      myDatum = buildDatum cp.myInput.playParams cp.myInput.pkh
       theirTxIn = cp.theirInput.txIn
-      theirDatum = gameDatum cp.theirInput.playParams cp.theirInput.pkh
+      theirDatum = buildDatum cp.theirInput.playParams cp.theirInput.pkh
       redeemer = GameRedeemer (cp.myInput.pkh, cp.myInput.playParams.ppSalt) (cp.theirInput.pkh, cp.theirInput.playParams.ppSalt)
       maxTxExUnits =
         fromMaybe ExecutionUnits {executionSteps = 0, executionMemory = 0} $
