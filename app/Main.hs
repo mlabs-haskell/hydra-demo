@@ -86,8 +86,7 @@ main = do
       headState :: HeadState
       headState = HeadState userCreds networkId pparamsResult
   putStrLn $ "user pubKeyHash " <> show userCreds.userPubKeyHash
-  Text.putStrLn $ "user address " <> serialiseAddress userCreds.userAddress
-  putStrLn ""
+  Text.putStrLn $ "user address " <> serialiseAddress userCreds.userAddress <> "\n"
   runClient nodeHost (read nodePort) "/" $ \ws -> do
     let nextServerEvent :: IO Text
         nextServerEvent = receiveData ws
