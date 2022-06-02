@@ -1,6 +1,30 @@
 module Main (main) where
 
-import Cardano.Api
+import Cardano.Api (
+  AddressInEra,
+  AlonzoEra,
+  AsType (AsAddressInEra, AsAlonzoEra, AsPaymentKey, AsSigningKey),
+  BuildTxWith (BuildTxWith),
+  CollateralSupportedInEra (CollateralInAlonzoEra),
+  ExecutionUnits (ExecutionUnits, executionMemory, executionSteps),
+  Key (getVerificationKey, verificationKeyHash),
+  Lovelace (..),
+  NetworkId (Testnet),
+  NetworkMagic (NetworkMagic),
+  PaymentCredential (PaymentCredentialByKey),
+  PaymentKey,
+  SerialiseAddress (deserialiseAddress, serialiseAddress),
+  SigningKey,
+  StakeAddressReference (NoStakeAddress),
+  TxBody,
+  TxBodyContent (txIns, txInsCollateral, txOuts, txProtocolParams),
+  TxIn,
+  TxInsCollateral (TxInsCollateral),
+  UTxO (UTxO),
+  makeShelleyAddressInEra,
+  makeTransactionBody,
+  readFileTextEnvelope,
+ )
 import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits))
 import Control.Concurrent (newChan, readChan, writeChan)
 import Control.Concurrent.Async (AsyncCancelled (AsyncCancelled), withAsync)
@@ -26,8 +50,24 @@ import System.Environment (getArgs)
 import System.IO.Error (isEOFError)
 
 import HydraRPS.Node.Command qualified as NodeCommand
-import HydraRPS.OnChain (GameDatum (..), GameRedeemer (..), encryptGesture, winnerValidator)
-import HydraRPS.Tx (TxDatum (..), TxRedeemer (..), baseBodyContent, parseTxIn, signTx, txInForValidator, txOutToAddress)
+import HydraRPS.OnChain (
+  GameDatum (..),
+  GameRedeemer (GameRedeemer),
+  encryptGesture,
+  rpsValidator,
+  rpsValidatorAddress,
+ )
+import HydraRPS.Tx (
+  TxDatum (TxDatum),
+  TxRedeemer (TxRedeemer),
+  baseBodyContent,
+  parseTxIn,
+  signTx,
+  txInForSpending,
+  txInForValidator,
+  txOutToAddress,
+  txOutToScript,
+ )
 import HydraRPS.UserInput qualified as UserInput
 
 import Prelude
@@ -45,6 +85,8 @@ main = do
 
       headState :: HeadState
       headState = HeadState userCreds networkId pparamsResult
+  putStrLn $ "user pubKeyHash " <> show userCreds.userPubKeyHash
+  Text.putStrLn $ "user address " <> serialiseAddress userCreds.userAddress <> "\n"
   runClient nodeHost (read nodePort) "/" $ \ws -> do
     let nextServerEvent :: IO Text
         nextServerEvent = receiveData ws
@@ -52,7 +94,7 @@ main = do
         submitCommand :: (MonadIO m, Aeson.ToJSON a) => a -> m ()
         submitCommand input = do
           let json = Aeson.encode input
-          liftIO $ Text.putStrLn $ "client input: " <> decodeUtf8 (LazyByteString.toStrict json)
+          liftIO $ Text.putStrLn $ "client input:\n" <> decodeUtf8 (LazyByteString.toStrict json) <> "\n"
           liftIO $ sendTextData ws json
 
     events <- newChan
@@ -92,7 +134,7 @@ data UserCommand
   | AbortHead
   | CloseHead
   | IssueFanout
-  | Bet TxIn UserInput.PlayParams
+  | Bet TxIn Lovelace UserInput.PlayParams
   | Claim TxIn UserInput.ClaimParams
 
 data UserCredentials = UserCredentials
@@ -138,6 +180,7 @@ commandReader enqueue = go
             putStrLn $ "input error: " <> displayException ex
           enqueue Exit
         Right command -> case words command of
+          [] -> go -- skip empty input for convenience
           ["exit"] -> enqueue Exit
           ["abort"] -> enqueue AbortHead >> go
           ["close"] -> enqueue CloseHead >> go
@@ -148,13 +191,14 @@ commandReader enqueue = go
           ["commit", txInStr, addrStr, lovelaceStr]
             | Right txIn <- parseTxIn (fromString txInStr)
               , Just addr <- deserialiseAddress (AsAddressInEra AsAlonzoEra) (fromString addrStr)
-              , [(lovelace, "")] <- reads lovelaceStr -> do
-              enqueue $ CommitToHead $ UTxO $ Map.singleton txIn (txOutToAddress addr (Lovelace lovelace))
+              , Just lovelace <- parseLovelace lovelaceStr -> do
+              enqueue $ CommitToHead $ UTxO $ Map.singleton txIn (txOutToAddress addr lovelace)
               go
-          "bet" : txInStr : ppStr
+          "bet" : txInStr : txInLovelaceStr : ppStr
             | Right txIn <- parseTxIn (fromString txInStr)
+              , Just txInLovelace <- parseLovelace txInLovelaceStr
               , Just pp <- parseJsonArgs ppStr -> do
-              enqueue (Bet txIn pp)
+              enqueue (Bet txIn txInLovelace pp)
               go
           "claim" : collateralTxInStr : cpStr
             | Right collateralTxIn <- parseTxIn (fromString collateralTxInStr)
@@ -167,6 +211,11 @@ commandReader enqueue = go
     parseJsonArgs :: Aeson.FromJSON a => [String] -> Maybe a
     parseJsonArgs = Aeson.decodeStrict . encodeUtf8 . fromString . unwords
 
+    parseLovelace :: String -> Maybe Lovelace
+    parseLovelace str
+      | [(lovelace, "")] <- reads str = Just (Lovelace lovelace)
+      | otherwise = Nothing
+
 eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> IO AppEvent -> m ()
 eventProcessor submit nextEvent = go
   where
@@ -177,7 +226,7 @@ eventProcessor submit nextEvent = go
         ApiEvent apiEvent ->
           case apiEvent of
             Just serverOutput -> do
-              liftIO $ Text.putStrLn ("node output: " <> serverOutput)
+              liftIO $ Text.putStrLn ("node output:\n" <> serverOutput <> "\n")
               go
             Nothing -> return ()
         UserCommand command ->
@@ -188,7 +237,12 @@ eventProcessor submit nextEvent = go
             IssueFanout -> submit NodeCommand.Fanout >> go
             InitHead period -> submit (NodeCommand.Init period) >> go
             CommitToHead utxoToCommit -> submit (NodeCommand.Commit utxoToCommit) >> go
-            Bet _txIn _pp -> liftIO (putStrLn "no betting yet") >> go
+            Bet txIn txInLovelace pp -> do
+              state <- ask
+              let unsignedTx = either error id $ buildBetTx txIn txInLovelace state pp
+                  signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
+              submit (NodeCommand.newTx signedTx)
+              go
             Claim collateralTxIn cp -> do
               state <- ask
               let unsignedTx = either error id $ buildClaimTx collateralTxIn state cp
@@ -198,22 +252,54 @@ eventProcessor submit nextEvent = go
 betConstant :: Lovelace
 betConstant = 10000000
 
+buildDatum :: UserInput.PlayParams -> Ledger.PubKeyHash -> GameDatum
+buildDatum playParams pkh =
+  GameDatum
+    { gdGesture = encryptGesture playParams.ppGesture playParams.ppSalt
+    , gdPkh = pkh
+    }
+
+-- precondition: txInLovelace >= betConstant
+buildBetTx :: TxIn -> Lovelace -> HeadState -> UserInput.PlayParams -> Either String (TxBody AlonzoEra)
+buildBetTx txIn txInLovelace state playParams = do
+  let changeAddress = state.hsUserCredentials.userAddress
+      datum = buildDatum playParams state.hsUserCredentials.userPubKeyHash
+  scriptOut <-
+    first (("bad address specifier: " <>) . show) $
+      txOutToScript state.hsNetworkId rpsValidatorAddress betConstant (TxDatum datum)
+  let changeOut
+        | txInLovelace > betConstant = [txOutToAddress changeAddress (txInLovelace - betConstant)]
+        | otherwise = []
+      bodyContent =
+        baseBodyContent
+          { txIns = [txInForSpending txIn]
+          , txOuts = scriptOut : changeOut
+          }
+  first (("bad tx-body: " <>) . show) $ makeTransactionBody bodyContent
+
 buildClaimTx :: TxIn -> HeadState -> UserInput.ClaimParams -> Either String (TxBody AlonzoEra)
 buildClaimTx collateralTxIn state cp = do
   let myTxIn = cp.myInput.txIn
-      myDatum = GameDatum (encryptGesture cp.myInput.playParams.ppGesture cp.myInput.playParams.ppSalt) cp.myInput.pkh
+      myDatum = buildDatum cp.myInput.playParams cp.myInput.pkh
       theirTxIn = cp.theirInput.txIn
-      theirDatum = GameDatum (encryptGesture cp.theirInput.playParams.ppGesture cp.theirInput.playParams.ppSalt) cp.theirInput.pkh
+      theirDatum = buildDatum cp.theirInput.playParams cp.theirInput.pkh
       redeemer = GameRedeemer (cp.myInput.pkh, cp.myInput.playParams.ppSalt) (cp.theirInput.pkh, cp.theirInput.playParams.ppSalt)
-      exUnits = fromMaybe ExecutionUnits {executionSteps = 0, executionMemory = 0} $ protocolParamMaxTxExUnits state.hsProtocolParams
+      maxTxExUnits =
+        fromMaybe ExecutionUnits {executionSteps = 0, executionMemory = 0} $
+          protocolParamMaxTxExUnits state.hsProtocolParams
+      exUnits =
+        ExecutionUnits
+          { executionSteps = executionSteps maxTxExUnits `div` 2
+          , executionMemory = executionMemory maxTxExUnits `div` 2
+          }
       outAddress = state.hsUserCredentials.userAddress
 
   myValidatorTxIn <-
     first (("bad script: " <>) . show) $
-      txInForValidator myTxIn winnerValidator (TxDatum myDatum) (TxRedeemer redeemer) exUnits
+      txInForValidator myTxIn rpsValidator (TxDatum myDatum) (TxRedeemer redeemer) exUnits
   theirValidatorIxIn <-
     first (("bad script: " <>) . show) $
-      txInForValidator theirTxIn winnerValidator (TxDatum theirDatum) (TxRedeemer redeemer) exUnits
+      txInForValidator theirTxIn rpsValidator (TxDatum theirDatum) (TxRedeemer redeemer) exUnits
 
   let bodyContent =
         baseBodyContent
