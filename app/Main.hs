@@ -241,17 +241,14 @@ eventProcessor submit nextEvent = go
             Bet txIn txInLovelace pp -> do
               state <- ask
               let unsignedTx = either error id $ buildBetTx txIn txInLovelace state pp
-                  signedTx = mkSignedTx state unsignedTx
+                  signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
               submit (NodeCommand.newTx signedTx)
               go
             Claim collateralTxIn cp -> do
               state <- ask
               let unsignedTx = either error id $ buildClaimTx collateralTxIn state cp
-                  signedTx = mkSignedTx state unsignedTx
+                  signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
               submit (NodeCommand.newTx signedTx) >> go
-
-mkSignedTx :: HeadState -> TxBody AlonzoEra -> Tx AlonzoEra
-mkSignedTx state = signTx state.hsUserCredentials.userSkey
 
 betConstant :: Lovelace
 betConstant = 10000000
