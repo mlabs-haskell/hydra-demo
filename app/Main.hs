@@ -1,6 +1,30 @@
 module Main (main) where
 
-import Cardano.Api
+import Cardano.Api (
+  AddressInEra,
+  AlonzoEra,
+  AsType (AsAddressInEra, AsAlonzoEra, AsPaymentKey, AsSigningKey),
+  BuildTxWith (BuildTxWith),
+  CollateralSupportedInEra (CollateralInAlonzoEra),
+  ExecutionUnits (ExecutionUnits, executionMemory, executionSteps),
+  Key (getVerificationKey, verificationKeyHash),
+  Lovelace (..),
+  NetworkId (Testnet),
+  NetworkMagic (NetworkMagic),
+  PaymentCredential (PaymentCredentialByKey),
+  PaymentKey,
+  SerialiseAddress (deserialiseAddress, serialiseAddress),
+  SigningKey,
+  StakeAddressReference (NoStakeAddress),
+  TxBody,
+  TxBodyContent (txIns, txInsCollateral, txOuts, txProtocolParams),
+  TxIn,
+  TxInsCollateral (TxInsCollateral),
+  UTxO (UTxO),
+  makeShelleyAddressInEra,
+  makeTransactionBody,
+  readFileTextEnvelope,
+ )
 import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits))
 import Control.Concurrent (newChan, readChan, writeChan)
 import Control.Concurrent.Async (AsyncCancelled (AsyncCancelled), withAsync)
@@ -26,8 +50,24 @@ import System.Environment (getArgs)
 import System.IO.Error (isEOFError)
 
 import HydraRPS.Node.Command qualified as NodeCommand
-import HydraRPS.OnChain
-import HydraRPS.Tx
+import HydraRPS.OnChain (
+  GameDatum (..),
+  GameRedeemer (GameRedeemer),
+  encryptGesture,
+  rpsValidator,
+  rpsValidatorAddress,
+ )
+import HydraRPS.Tx (
+  TxDatum (TxDatum),
+  TxRedeemer (TxRedeemer),
+  baseBodyContent,
+  parseTxIn,
+  signTx,
+  txInForSpending,
+  txInForValidator,
+  txOutToAddress,
+  txOutToScript,
+ )
 import HydraRPS.UserInput qualified as UserInput
 
 import Prelude
