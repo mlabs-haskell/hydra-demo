@@ -129,6 +129,8 @@ data AppEvent
 
 data ServerOutput
   = Other Text
+  | HeadIsOpen (UTxO AlonzoEra)
+  | SnapshotConfirmed (UTxO AlonzoEra)
 
 data UserCommand
   = InitHead Int
@@ -175,7 +177,12 @@ decodeServerOutput bytes = do
   value <- eitherDecode bytes
   flip parseEither value $ \o -> do
     tag <- o .: "tag"
-    return $ Other tag
+    case tag of
+      "HeadIsOpen" -> HeadIsOpen <$> o .: "utxo"
+      "SnapshotConfirmed" -> do
+        snapshot <- o .: "snapshot"
+        SnapshotConfirmed <$> snapshot .: "utxo"
+      _ -> pure (Other tag)
 
 unexpectedInputException :: SomeException -> Bool
 unexpectedInputException ex
@@ -242,6 +249,8 @@ eventProcessor submit nextEvent = go
             Just serverOutput -> do
               case serverOutput of
                 Other tag -> liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
+                HeadIsOpen utxo -> liftIO $ putStrLn $ "head is open\n" <> show utxo <> "\n"
+                SnapshotConfirmed utxo -> liftIO $ putStrLn $ "snapshot confirmed\n" <> show utxo <> "\n"
               go
             Nothing -> return ()
         UserCommand command ->
