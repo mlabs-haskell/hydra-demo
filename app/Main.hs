@@ -33,16 +33,17 @@ import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader.Class (MonadReader, ask)
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
-import Data.Aeson qualified as Aeson (FromJSON, ToJSON, decodeStrict, eitherDecodeFileStrict', encode)
+import Data.Aeson (FromJSON, ToJSON, decode, eitherDecode, eitherDecodeFileStrict', encode, (.:))
+import Data.Aeson.Types (parseEither)
 import Data.Bifunctor (first)
-import Data.ByteString.Lazy qualified as LazyByteString (toStrict)
+import Data.ByteString.Lazy (ByteString)
 import Data.Kind (Type)
 import Data.Map qualified as Map (singleton)
 import Data.Maybe (fromMaybe)
 import Data.String (fromString)
-import Data.Text (Text)
-import Data.Text.Encoding (decodeUtf8, encodeUtf8)
-import Data.Text.IO qualified as Text (putStrLn)
+import Data.Text.Lazy (Text, fromStrict)
+import Data.Text.Lazy.Encoding (decodeUtf8, encodeUtf8)
+import Data.Text.Lazy.IO qualified as Text (putStrLn)
 import Ledger qualified (PubKeyHash)
 import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash)
 import Network.WebSockets (ConnectionException, receiveData, runClient, sendTextData)
@@ -76,7 +77,7 @@ main :: IO ()
 main = do
   nodeHost : nodePort : keyFile : protocolParamsFile : _ <- getArgs
   skey <- either (fail . show) pure =<< readFileTextEnvelope (AsSigningKey AsPaymentKey) keyFile
-  pparamsResult <- either (fail . show) pure =<< Aeson.eitherDecodeFileStrict' protocolParamsFile
+  pparamsResult <- either fail pure =<< eitherDecodeFileStrict' protocolParamsFile
   let networkId :: NetworkId
       networkId = Testnet (NetworkMagic 42)
 
@@ -86,19 +87,19 @@ main = do
       headState :: HeadState
       headState = HeadState userCreds networkId pparamsResult
   putStrLn $ "user pubKeyHash " <> show userCreds.userPubKeyHash
-  Text.putStrLn $ "user address " <> serialiseAddress userCreds.userAddress <> "\n"
+  Text.putStrLn $ "user address " <> fromStrict (serialiseAddress userCreds.userAddress) <> "\n"
   runClient nodeHost (read nodePort) "/" $ \ws -> do
-    let nextServerEvent :: IO Text
+    let nextServerEvent :: IO ByteString
         nextServerEvent = receiveData ws
 
-        submitCommand :: (MonadIO m, Aeson.ToJSON a) => a -> m ()
+        submitCommand :: (MonadIO m, ToJSON a) => a -> m ()
         submitCommand input = do
-          let json = Aeson.encode input
-          liftIO $ Text.putStrLn $ "client input:\n" <> decodeUtf8 (LazyByteString.toStrict json) <> "\n"
+          let json = encode input
+          liftIO $ Text.putStrLn $ "client input:\n" <> decodeUtf8 json <> "\n"
           liftIO $ sendTextData ws json
 
     events <- newChan
-    let enqueueApiEvent :: Maybe Text -> IO ()
+    let enqueueApiEvent :: Maybe ServerOutput -> IO ()
         enqueueApiEvent = writeChan events . ApiEvent
 
         enqueueUserCommand :: UserCommand -> IO ()
@@ -123,10 +124,12 @@ runInHead :: HeadState -> HeadM a -> IO a
 runInHead c ba = runReaderT (unHeadM ba) c
 
 data AppEvent
-  = ApiEvent (Maybe Text)
+  = ApiEvent (Maybe ServerOutput)
   | UserCommand UserCommand
 
-type ApiEvent = Maybe Text
+data ServerOutput
+  = Other Text
+
 data UserCommand
   = InitHead Int
   | CommitToHead (UTxO AlonzoEra)
@@ -150,7 +153,7 @@ mkUserCredentials networkId skey = UserCredentials skey pkh addr
     pkh = fromCardanoPaymentKeyHash vkeyHash
     addr = makeShelleyAddressInEra networkId (PaymentCredentialByKey vkeyHash) NoStakeAddress
 
-apiReader :: IO Text -> (ApiEvent -> IO ()) -> IO ()
+apiReader :: IO ByteString -> (Maybe ServerOutput -> IO ()) -> IO ()
 apiReader nextServerEvent enqueue = go
   where
     go = do
@@ -160,8 +163,19 @@ apiReader nextServerEvent enqueue = go
           putStrLn $ "node connection error: " <> show e
           enqueue Nothing
         Right o -> do
-          enqueue $ Just o
+          Text.putStrLn $ "node output:\n" <> decodeUtf8 o
+          case decodeServerOutput o of
+            Left err -> putStrLn $ "node output decoding error: " <> err
+            Right decoded -> enqueue $ Just decoded
+          putStrLn ""
           go
+
+decodeServerOutput :: ByteString -> Either String ServerOutput
+decodeServerOutput bytes = do
+  value <- eitherDecode bytes
+  flip parseEither value $ \o -> do
+    tag <- o .: "tag"
+    return $ Other tag
 
 unexpectedInputException :: SomeException -> Bool
 unexpectedInputException ex
@@ -208,8 +222,8 @@ commandReader enqueue = go
             putStrLn $ "input: unknown command " <> show cmd
             go
 
-    parseJsonArgs :: Aeson.FromJSON a => [String] -> Maybe a
-    parseJsonArgs = Aeson.decodeStrict . encodeUtf8 . fromString . unwords
+    parseJsonArgs :: FromJSON a => [String] -> Maybe a
+    parseJsonArgs = decode . encodeUtf8 . fromString . unwords
 
     parseLovelace :: String -> Maybe Lovelace
     parseLovelace str
@@ -226,7 +240,8 @@ eventProcessor submit nextEvent = go
         ApiEvent apiEvent ->
           case apiEvent of
             Just serverOutput -> do
-              liftIO $ Text.putStrLn ("node output:\n" <> serverOutput <> "\n")
+              case serverOutput of
+                Other tag -> liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
               go
             Nothing -> return ()
         UserCommand command ->
