@@ -238,40 +238,77 @@ commandReader enqueue = go
       | otherwise = Nothing
 
 eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> IO AppEvent -> m ()
-eventProcessor submit nextEvent = go
+eventProcessor submit nextEvent = openTheHead
   where
-    go :: m ()
-    go = do
+    openTheHead :: m ()
+    openTheHead = do
       event <- liftIO nextEvent
       case event of
         ApiEvent apiEvent ->
           case apiEvent of
             Just serverOutput -> do
               case serverOutput of
-                Other tag -> liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
-                HeadIsOpen utxo -> liftIO $ putStrLn $ "head is open\n" <> show utxo <> "\n"
-                SnapshotConfirmed utxo -> liftIO $ putStrLn $ "snapshot confirmed\n" <> show utxo <> "\n"
-              go
+                HeadIsOpen utxo -> do
+                  liftIO $ putStrLn $ "head is opened\n" <> show utxo <> "\n"
+                  playTheGame utxo
+                SnapshotConfirmed utxo -> do
+                  liftIO $ putStrLn $ "unexpected snapshot confirmation (head is not opened yet)\n" <> show utxo <> "\n"
+                  openTheHead
+                Other tag -> do
+                  liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
+                  openTheHead
             Nothing -> return ()
         UserCommand command ->
           case command of
             Exit -> return ()
-            AbortHead -> submit NodeCommand.Abort >> go
-            CloseHead -> submit NodeCommand.Close >> go
-            IssueFanout -> submit NodeCommand.Fanout >> go
-            InitHead period -> submit (NodeCommand.Init period) >> go
-            CommitToHead utxoToCommit -> submit (NodeCommand.Commit utxoToCommit) >> go
+            InitHead period -> submit (NodeCommand.Init period) >> openTheHead
+            AbortHead -> submit NodeCommand.Abort >> openTheHead
+            CommitToHead utxoToCommit -> submit (NodeCommand.Commit utxoToCommit) >> openTheHead
+            _ -> do
+              liftIO $ putStrLn "head is not opened yet"
+              openTheHead
+
+    playTheGame :: UTxO AlonzoEra -> m ()
+    playTheGame utxo = do
+      event <- liftIO nextEvent
+      case event of
+        ApiEvent apiEvent ->
+          case apiEvent of
+            Just serverOutput -> do
+              case serverOutput of
+                Other tag -> do
+                  liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
+                  playTheGame utxo
+                HeadIsOpen unexpectedUtxo -> do
+                  liftIO $ putStrLn $ "unexpected head opening (head is already opened)\n" <> show unexpectedUtxo <> "\n"
+                  playTheGame utxo
+                SnapshotConfirmed updatedUtxo -> do
+                  liftIO $ putStrLn $ "snapshot confirmed\n" <> show updatedUtxo <> "\n"
+                  playTheGame updatedUtxo
+            Nothing -> return ()
+        UserCommand command ->
+          case command of
+            Exit -> return ()
+            CloseHead -> submit NodeCommand.Close >> playTheGame utxo
+            IssueFanout -> do
+              -- TODO proper close/fan-out sequence
+              submit NodeCommand.Fanout
+              openTheHead
             Bet txIn txInLovelace pp -> do
               state <- ask
               let unsignedTx = either error id $ buildBetTx txIn txInLovelace state pp
                   signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
               submit (NodeCommand.newTx signedTx)
-              go
+              playTheGame utxo
             Claim collateralTxIn cp -> do
               state <- ask
               let unsignedTx = either error id $ buildClaimTx collateralTxIn state cp
                   signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
-              submit (NodeCommand.newTx signedTx) >> go
+              submit (NodeCommand.newTx signedTx)
+              playTheGame utxo
+            _ -> do
+              liftIO $ putStrLn "head is already opened"
+              playTheGame utxo
 
 betConstant :: Lovelace
 betConstant = 10000000
