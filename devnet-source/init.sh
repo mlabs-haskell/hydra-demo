@@ -1,5 +1,3 @@
-#!/usr/bin/env bash
-
 for tx in ./seed-{alice,bob}{,-fuel}.tx
 do
   echo $tx

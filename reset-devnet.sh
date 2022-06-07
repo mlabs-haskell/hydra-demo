@@ -9,7 +9,7 @@ TARGETDIR="devnet"
 [ -d "$TARGETDIR" ] && { echo "Cleaning up directory $TARGETDIR" ; sudo rm -r $TARGETDIR ; }
 
 cp -af "./devnet-source/." "$TARGETDIR"
-find $TARGETDIR -type f -exec chmod 0400 {} \;
+find $TARGETDIR -type f -not -path $TARGETDIR/init.sh -exec chmod 0400 {} \;
 
 echo '{"Producers": []}' > "./devnet/topology.json"
 sed -i.bk "s/\"startTime\": [0-9]*/\"startTime\": $(date +%s)/" "$TARGETDIR/genesis-byron.json" && rm -f "$TARGETDIR/genesis-byron.json.bk" && \
