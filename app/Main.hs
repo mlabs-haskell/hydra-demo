@@ -20,10 +20,13 @@ import Cardano.Api (
   TxBodyContent (txIns, txInsCollateral, txOuts, txProtocolParams),
   TxIn,
   TxInsCollateral (TxInsCollateral),
+  TxOut (TxOut),
   UTxO (UTxO),
   makeShelleyAddressInEra,
   makeTransactionBody,
   readFileTextEnvelope,
+  txOutValueToValue,
+  valueToLovelace,
  )
 import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits))
 import Control.Concurrent (newChan, readChan, writeChan)
@@ -38,7 +41,8 @@ import Data.Aeson.Types (parseEither)
 import Data.Bifunctor (first)
 import Data.ByteString.Lazy (ByteString)
 import Data.Kind (Type)
-import Data.Map qualified as Map (singleton)
+import Data.List (sortOn)
+import Data.Map qualified as Map (singleton, toList)
 import Data.Maybe (fromMaybe)
 import Data.String (fromString)
 import Data.Text.Lazy (Text, fromStrict)
@@ -139,7 +143,7 @@ data UserCommand
   | AbortHead
   | CloseHead
   | IssueFanout
-  | Bet TxIn Lovelace UserInput.PlayParams
+  | Bet UserInput.PlayParams
   | Claim TxIn UserInput.ClaimParams
 
 data UserCredentials = UserCredentials
@@ -215,11 +219,9 @@ commandReader enqueue = go
               , Just lovelace <- parseLovelace lovelaceStr -> do
               enqueue $ CommitToHead $ UTxO $ Map.singleton txIn (txOutToAddress addr lovelace)
               go
-          "bet" : txInStr : txInLovelaceStr : ppStr
-            | Right txIn <- parseTxIn (fromString txInStr)
-              , Just txInLovelace <- parseLovelace txInLovelaceStr
-              , Just pp <- parseJsonArgs ppStr -> do
-              enqueue (Bet txIn txInLovelace pp)
+          "bet" : ppStr
+            | Just pp <- parseJsonArgs ppStr -> do
+              enqueue (Bet pp)
               go
           "claim" : collateralTxInStr : cpStr
             | Right collateralTxIn <- parseTxIn (fromString collateralTxInStr)
@@ -294,12 +296,18 @@ eventProcessor submit nextEvent = openTheHead
               -- TODO proper close/fan-out sequence
               submit NodeCommand.Fanout
               openTheHead
-            Bet txIn txInLovelace pp -> do
+            Bet pp -> do
               state <- ask
-              let unsignedTx = either error id $ buildBetTx txIn txInLovelace state pp
-                  signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
-              submit (NodeCommand.newTx signedTx)
-              playTheGame utxo
+              let myUtxos = utxosAt state.hsUserCredentials.userAddress utxo
+              case allocateUtxos betConstant (sortOn snd myUtxos) of
+                Nothing -> do
+                  liftIO $ putStrLn "not enough funds"
+                  playTheGame utxo
+                Just (refs, total) -> do
+                  let unsignedTx = either error id $ buildBetTx refs total state pp
+                      signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
+                  submit (NodeCommand.newTx signedTx)
+                  playTheGame utxo
             Claim collateralTxIn cp -> do
               state <- ask
               let unsignedTx = either error id $ buildClaimTx collateralTxIn state cp
@@ -309,6 +317,22 @@ eventProcessor submit nextEvent = openTheHead
             _ -> do
               liftIO $ putStrLn "head is already opened"
               playTheGame utxo
+
+-- | Get all tx-ins at the address containing /only/ 'Lovelace'
+utxosAt :: AddressInEra AlonzoEra -> UTxO AlonzoEra -> [(TxIn, Lovelace)]
+utxosAt address (UTxO utxo) =
+  [ (txIn, lovelace)
+  | (txIn, TxOut txAddr txValue _) <- Map.toList utxo
+  , txAddr == address
+  , Just lovelace <- [valueToLovelace (txOutValueToValue txValue)]
+  ]
+
+allocateUtxos :: Lovelace -> [(TxIn, Lovelace)] -> Maybe ([TxIn], Lovelace)
+allocateUtxos _ [] = Nothing
+allocateUtxos target ((txIn, lovelace) : rest)
+  | target <= lovelace = Just ([txIn], lovelace)
+  | Just (refs, available) <- allocateUtxos (target - lovelace) rest = Just (txIn : refs, lovelace + available)
+  | otherwise = Nothing
 
 betConstant :: Lovelace
 betConstant = 10000000
@@ -320,20 +344,20 @@ buildDatum playParams pkh =
     , gdPkh = pkh
     }
 
--- precondition: txInLovelace >= betConstant
-buildBetTx :: TxIn -> Lovelace -> HeadState -> UserInput.PlayParams -> Either String (TxBody AlonzoEra)
-buildBetTx txIn txInLovelace state playParams = do
+-- precondition: inputTotal >= betConstant
+buildBetTx :: [TxIn] -> Lovelace -> HeadState -> UserInput.PlayParams -> Either String (TxBody AlonzoEra)
+buildBetTx inputRefs inputTotal state playParams = do
   let changeAddress = state.hsUserCredentials.userAddress
       datum = buildDatum playParams state.hsUserCredentials.userPubKeyHash
   scriptOut <-
     first (("bad address specifier: " <>) . show) $
       txOutToScript state.hsNetworkId rpsValidatorAddress betConstant (TxDatum datum)
   let changeOut
-        | txInLovelace > betConstant = [txOutToAddress changeAddress (txInLovelace - betConstant)]
+        | inputTotal > betConstant = [txOutToAddress changeAddress (inputTotal - betConstant)]
         | otherwise = []
       bodyContent =
         baseBodyContent
-          { txIns = [txInForSpending txIn]
+          { txIns = map txInForSpending inputRefs
           , txOuts = scriptOut : changeOut
           }
   first (("bad tx-body: " <>) . show) $ makeTransactionBody bodyContent
