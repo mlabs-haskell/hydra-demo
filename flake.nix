@@ -57,8 +57,18 @@
         ];
 
         flake = pkgs.hydraDemoProject.flake { };
+
       in
-      flake // {
-        defaultPackage = flake.packages."hydra-demo:exe:hydra-rps-game";
+      {
+        flake = flake // {
+          defaultPackage = flake.packages."hydra-demo:exe:hydra-rps-game";
+        };
+        packages = self.flake.${system}.packages;
+        checks = self.flake.${system}.checks;
+        check = pkgs.runCommand "combined-test" {
+          nativeBuildInputs = builtins.attrValues self.checks.${system};
+          } "touch $out";
+        apps = self.flake.${system}.apps;
+        devShell = self.flake.${system}.devShell;
       });
 }
