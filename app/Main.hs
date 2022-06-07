@@ -357,7 +357,7 @@ buildBetTx inputRefs inputTotal state playParams = do
         | otherwise = []
       bodyContent =
         baseBodyContent
-          { txIns = map txInForSpending inputRefs
+          { txIns = txInForSpending <$> inputRefs
           , txOuts = scriptOut : changeOut
           }
   first (("bad tx-body: " <>) . show) $ makeTransactionBody bodyContent
