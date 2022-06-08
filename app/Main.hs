@@ -40,7 +40,7 @@ import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader.Class (MonadReader, ask)
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
-import Data.Aeson (FromJSON, Result (Success), ToJSON, Value (String), decode, eitherDecode, eitherDecodeFileStrict', encode, fromJSON, (.:))
+import Data.Aeson (FromJSON, Result (Success), ToJSON, Value (String), eitherDecode, eitherDecodeFileStrict', encode, fromJSON, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.Bifunctor (first)
 import Data.ByteString.Lazy (ByteString)
@@ -51,9 +51,9 @@ import Data.Map qualified as Map (filter, lookupMin, mapMaybe, singleton, toList
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.String (fromString)
 import Data.Text.Lazy (Text, fromStrict)
-import Data.Text.Lazy.Encoding (decodeUtf8, encodeUtf8)
+import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.IO qualified as Text (putStrLn)
-import Ledger qualified (PubKeyHash, toCardanoAPIData)
+import Ledger qualified (PubKeyHash (PubKeyHash), toCardanoAPIData)
 import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash, toCardanoAddress)
 import Network.WebSockets (ConnectionException, receiveData, runClient, sendTextData)
 import PlutusTx (ToData (toBuiltinData))
@@ -153,7 +153,7 @@ data UserCommand
   | CloseHead
   | IssueFanout
   | Bet UserInput.PlayParams
-  | Claim GameRedeemer
+  | Claim UserInput.ClaimParams
 
 data UserCredentials = UserCredentials
   { userSkey :: SigningKey PaymentKey
@@ -233,14 +233,15 @@ commandReader enqueue = go
             , Success salt <- readFromJsonString saltStr -> do
               enqueue $ Bet $ UserInput.PlayParams gesture salt
               go
-          "claim" : redeemerStr
-            | Just redeemer <- parseJsonArgs redeemerStr -> enqueue (Claim redeemer) >> go
+          ["claim", mySaltStr, theirPkhStr, theirSaltStr]
+            | Success mySalt <- readFromJsonString mySaltStr
+            , Success theirPkh <- readFromJsonString theirPkhStr
+            , Success theirSalt <- readFromJsonString theirSaltStr -> do
+              enqueue $ Claim $ UserInput.ClaimParams mySalt (Ledger.PubKeyHash theirPkh) theirSalt
+              go
           cmd -> do
             putStrLn $ "input: unknown command " <> show cmd
             go
-
-    parseJsonArgs :: FromJSON a => [String] -> Maybe a
-    parseJsonArgs = decode . encodeUtf8 . fromString . unwords
 
     readFromJsonString :: FromJSON a => String -> Result a
     readFromJsonString = fromJSON . String . fromString
@@ -324,9 +325,13 @@ eventProcessor submit nextEvent = openTheHead
                       signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
                   submit (NodeCommand.newTx signedTx)
                   playTheGame utxo
-            Claim redeemer -> do
+            Claim cp -> do
               state <- ask
-              let txResult = do
+              let redeemer =
+                    GameRedeemer
+                      (state.hsUserCredentials.userPubKeyHash, cp.mySalt)
+                      (cp.theirPkh, cp.theirSalt)
+                  txResult = do
                     collateralTxIn <-
                       maybe (Left "could not find collateral") (Right . fst)
                         $ Map.lookupMin
