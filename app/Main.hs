@@ -32,6 +32,7 @@ import Cardano.Api (
   txOutValueToValue,
   valueToLovelace,
  )
+import Cardano.Api qualified (Value)
 import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits))
 import Control.Concurrent (newChan, readChan, writeChan)
 import Control.Concurrent.Async (AsyncCancelled (AsyncCancelled), withAsync)
@@ -53,9 +54,10 @@ import Data.String (fromString)
 import Data.Text.Lazy (Text, fromStrict)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.IO qualified as Text (putStrLn)
-import Ledger qualified (PubKeyHash (PubKeyHash), toCardanoAPIData)
+import Ledger qualified (Address (Address), PubKeyHash (PubKeyHash), toCardanoAPIData)
 import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash, toCardanoAddress)
 import Network.WebSockets (ConnectionException, receiveData, runClient, sendTextData)
+import Plutus.V1.Ledger.Api (Credential (PubKeyCredential))
 import PlutusTx (ToData (toBuiltinData))
 import PlutusTx.Prelude (BuiltinByteString)
 import System.Environment (getArgs)
@@ -81,6 +83,7 @@ import HydraRPS.Tx (
   txInForValidator,
   txOutToAddress,
   txOutToScript,
+  txOutValueToAddress,
  )
 import HydraRPS.UserInput qualified as UserInput
 
@@ -230,13 +233,13 @@ commandReader enqueue = go
               go
           ["bet", gestureStr, saltStr]
             | Success gesture <- readFromJsonString gestureStr
-            , Success salt <- readFromJsonString saltStr -> do
+              , Success salt <- readFromJsonString saltStr -> do
               enqueue $ Bet $ UserInput.PlayParams gesture salt
               go
           ["claim", mySaltStr, theirPkhStr, theirSaltStr]
             | Success mySalt <- readFromJsonString mySaltStr
-            , Success theirPkh <- readFromJsonString theirPkhStr
-            , Success theirSalt <- readFromJsonString theirSaltStr -> do
+              , Success theirPkh <- readFromJsonString theirPkhStr
+              , Success theirSalt <- readFromJsonString theirSaltStr -> do
               enqueue $ Claim $ UserInput.ClaimParams mySalt (Ledger.PubKeyHash theirPkh) theirSalt
               go
           cmd -> do
@@ -311,11 +314,11 @@ eventProcessor submit nextEvent = openTheHead
             Bet pp -> do
               state <- ask
               let inputAllocation =
-                    allocateUtxos betConstant
-                      $ sortOn snd
-                        $ Map.toList
-                          $ extractLovelace
-                            $ utxosAt state.hsUserCredentials.userAddress utxo
+                    allocateUtxos betConstant $
+                      sortOn snd $
+                        Map.toList $
+                          extractLovelace $
+                            utxosAt state.hsUserCredentials.userAddress utxo
               case inputAllocation of
                 Nothing -> do
                   liftIO $ putStrLn "not enough funds"
@@ -333,10 +336,10 @@ eventProcessor submit nextEvent = openTheHead
                       (cp.theirPkh, cp.theirSalt)
                   txResult = do
                     collateralTxIn <-
-                      maybe (Left "could not find collateral") (Right . fst)
-                        $ Map.lookupMin
-                          $ unUTxO
-                            $ utxosAt state.hsUserCredentials.userAddress utxo
+                      maybe (Left "could not find collateral") (Right . fst) $
+                        Map.lookupMin $
+                          unUTxO $
+                            utxosAt state.hsUserCredentials.userAddress utxo
                     scriptAddress <- first (("toCardanoAddress: " <>) . show) $ toCardanoAddress state.hsNetworkId rpsValidatorAddress
                     let betUtxos = utxosAt scriptAddress utxo
                     unsignedTx <- buildClaimTx collateralTxIn state (filterUtxos redeemer betUtxos) redeemer
@@ -351,11 +354,13 @@ eventProcessor submit nextEvent = openTheHead
 
 utxosAt :: AddressInEra AlonzoEra -> UTxO AlonzoEra -> UTxO AlonzoEra
 utxosAt addr (UTxO utxo) = UTxO (Map.filter matchAddress utxo)
-  where matchAddress (TxOut txAddr _ _) = txAddr == addr
+  where
+    matchAddress (TxOut txAddr _ _) = txAddr == addr
 
 extractLovelace :: UTxO AlonzoEra -> Map TxIn Lovelace
 extractLovelace (UTxO utxo) = Map.mapMaybe toLovelace utxo
-  where toLovelace (TxOut _ txValue _) = valueToLovelace (txOutValueToValue txValue)
+  where
+    toLovelace (TxOut _ txValue _) = valueToLovelace (txOutValueToValue txValue)
 
 allocateUtxos :: Lovelace -> [(TxIn, Lovelace)] -> Maybe ([TxIn], Lovelace)
 allocateUtxos _ [] = Nothing
@@ -392,52 +397,60 @@ buildBetTx inputRefs inputTotal state playParams = do
           }
   first (("bad tx-body: " <>) . show) $ makeTransactionBody bodyContent
 
-buildClaimTx :: TxIn -> HeadState -> [(TxIn, Gesture, GameDatum)] -> GameRedeemer -> Either String (TxBody AlonzoEra)
-buildClaimTx collateralTxIn state [(myTxIn, myGesture, myDatum), (theirTxIn, theirGesture, theirDatum)] redeemer
-  | beats myGesture theirGesture = do
-    let maxTxExUnits =
-          fromMaybe ExecutionUnits {executionSteps = 0, executionMemory = 0} $
-            protocolParamMaxTxExUnits state.hsProtocolParams
-        exUnits =
-          ExecutionUnits
-            { executionSteps = executionSteps maxTxExUnits `div` 2
-            , executionMemory = executionMemory maxTxExUnits `div` 2
-            }
-        outAddress = state.hsUserCredentials.userAddress
+buildClaimTx :: TxIn -> HeadState -> [(TxIn, Gesture, Cardano.Api.Value, GameDatum)] -> GameRedeemer -> Either String (TxBody AlonzoEra)
+buildClaimTx collateralTxIn state [(myTxIn, myGesture, myTxValue, myDatum), (theirTxIn, theirGesture, theirTxValue, theirDatum)] redeemer = do
+  theirAddress <-
+    first (("bad their pub key hash: " <>) . show) $
+      toCardanoAddress state.hsNetworkId $
+        Ledger.Address (PubKeyCredential theirDatum.gdPkh) Nothing
+  let maxTxExUnits =
+        fromMaybe ExecutionUnits {executionSteps = 0, executionMemory = 0} $
+          protocolParamMaxTxExUnits state.hsProtocolParams
+      exUnits =
+        ExecutionUnits
+          { executionSteps = executionSteps maxTxExUnits `div` 2
+          , executionMemory = executionMemory maxTxExUnits `div` 2
+          }
+      outputs
+        | beats myGesture theirGesture = [txOutValueToAddress state.hsUserCredentials.userAddress (myTxValue <> theirTxValue)]
+        | beats theirGesture myGesture = [txOutValueToAddress theirAddress (myTxValue <> theirTxValue)]
+        | otherwise =
+          [ txOutValueToAddress state.hsUserCredentials.userAddress myTxValue
+          , txOutValueToAddress theirAddress theirTxValue
+          ]
 
-    myValidatorTxIn <-
-      first (("bad script: " <>) . show) $
-        txInForValidator myTxIn rpsValidator (TxDatum myDatum) (TxRedeemer redeemer) exUnits
-    theirValidatorIxIn <-
-      first (("bad script: " <>) . show) $
-        txInForValidator theirTxIn rpsValidator (TxDatum theirDatum) (TxRedeemer redeemer) exUnits
+  myValidatorTxIn <-
+    first (("bad script: " <>) . show) $
+      txInForValidator myTxIn rpsValidator (TxDatum myDatum) (TxRedeemer redeemer) exUnits
+  theirValidatorIxIn <-
+    first (("bad script: " <>) . show) $
+      txInForValidator theirTxIn rpsValidator (TxDatum theirDatum) (TxRedeemer redeemer) exUnits
 
-    let bodyContent =
-          baseBodyContent
-            { txIns = [myValidatorTxIn, theirValidatorIxIn]
-            , txInsCollateral = TxInsCollateral CollateralInAlonzoEra [collateralTxIn]
-            , txOuts = [txOutToAddress outAddress (2 * betConstant)]
-            , txProtocolParams = BuildTxWith (Just state.hsProtocolParams)
-            }
-    first (("bad tx-body: " <>) . show) $ makeTransactionBody bodyContent
-  | otherwise = Left "you are not a winner"
-
+  let bodyContent =
+        baseBodyContent
+          { txIns = [myValidatorTxIn, theirValidatorIxIn]
+          , txInsCollateral = TxInsCollateral CollateralInAlonzoEra [collateralTxIn]
+          , txOuts = outputs
+          , txProtocolParams = BuildTxWith (Just state.hsProtocolParams)
+          }
+  first (("bad tx-body: " <>) . show) $ makeTransactionBody bodyContent
 buildClaimTx _ _ _ _ = Left "bad input parameters"
 
-filterUtxos :: GameRedeemer -> UTxO AlonzoEra -> [(TxIn, Gesture, GameDatum)]
+filterUtxos :: GameRedeemer -> UTxO AlonzoEra -> [(TxIn, Gesture, Cardano.Api.Value, GameDatum)]
 filterUtxos (GameRedeemer (myPk, mySalt) (theirPk, theirSalt)) (UTxO utxos) =
   foldl step [] (Map.toList utxos)
   where
-    step acc (tOutRef, TxOut _ _ (TxOutDatumHash _ dh))
-      | Just (gesture, datum) <- extractGesture myPk mySalt dh = (tOutRef, gesture, datum) : acc
-      | Just (gesture, datum) <- extractGesture theirPk theirSalt dh = acc ++ [((tOutRef, gesture, datum))]
+    step acc (txOutRef, TxOut _ txOutValue (TxOutDatumHash _ dh))
+      | Just (gesture, datum) <- extractGesture myPk mySalt dh = (txOutRef, gesture, txOutValueToValue txOutValue, datum) : acc
+      | Just (gesture, datum) <- extractGesture theirPk theirSalt dh = acc ++ [(txOutRef, gesture, txOutValueToValue txOutValue, datum)]
       | otherwise = acc
     step acc _ = acc
 
     extractGesture :: Ledger.PubKeyHash -> BuiltinByteString -> Hash ScriptData -> Maybe (Gesture, GameDatum)
-    extractGesture key salt dh = listToMaybe
-      [ (gesture, datum)
-      | gesture <- [minBound .. maxBound]
-      , let datum = buildDatum (UserInput.PlayParams gesture salt) key
-      , hashScriptData (Ledger.toCardanoAPIData (toBuiltinData datum)) == dh
-      ]
+    extractGesture key salt dh =
+      listToMaybe
+        [ (gesture, datum)
+        | gesture <- [minBound .. maxBound]
+        , let datum = buildDatum (UserInput.PlayParams gesture salt) key
+        , hashScriptData (Ledger.toCardanoAPIData (toBuiltinData datum)) == dh
+        ]
