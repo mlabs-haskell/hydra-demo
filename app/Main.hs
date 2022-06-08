@@ -40,7 +40,7 @@ import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader.Class (MonadReader, ask)
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
-import Data.Aeson (FromJSON, ToJSON, decode, eitherDecode, eitherDecodeFileStrict', encode, (.:))
+import Data.Aeson (FromJSON, Result (Success), ToJSON, Value (String), decode, eitherDecode, eitherDecodeFileStrict', encode, fromJSON, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.Bifunctor (first)
 import Data.ByteString.Lazy (ByteString)
@@ -228,9 +228,10 @@ commandReader enqueue = go
               , Just lovelace <- parseLovelace lovelaceStr -> do
               enqueue $ CommitToHead $ UTxO $ Map.singleton txIn (txOutToAddress addr lovelace)
               go
-          "bet" : ppStr
-            | Just pp <- parseJsonArgs ppStr -> do
-              enqueue (Bet pp)
+          ["bet", gestureStr, saltStr]
+            | Success gesture <- readFromJsonString gestureStr
+            , Success salt <- readFromJsonString saltStr -> do
+              enqueue $ Bet $ UserInput.PlayParams gesture salt
               go
           "claim" : redeemerStr
             | Just redeemer <- parseJsonArgs redeemerStr -> enqueue (Claim redeemer) >> go
@@ -240,6 +241,9 @@ commandReader enqueue = go
 
     parseJsonArgs :: FromJSON a => [String] -> Maybe a
     parseJsonArgs = decode . encodeUtf8 . fromString . unwords
+
+    readFromJsonString :: FromJSON a => String -> Result a
+    readFromJsonString = fromJSON . String . fromString
 
     parseLovelace :: String -> Maybe Lovelace
     parseLovelace str
