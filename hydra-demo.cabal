@@ -117,20 +117,30 @@ test-suite hydra-rps-game-test
     OffChain.Test
     Tx.DummyContract
     Tx.Spec
-
+    EndToEnd.Spec
   build-depends:
     , aeson
     , bytestring
     , cardano-api
+    , containers
     , filepath
     , hydra-demo
+    , hydra-cluster
+    , hydra-test-utils
+    , hydra-cardano-api
+    , hydra-prelude
+    , hydra-node
+    , lens
+    , lens-aeson
     , plutus-contract
     , plutus-ledger
     , plutus-ledger-api
     , plutus-tx
     , plutus-tx-plugin
+    , QuickCheck
     , tasty
     , tasty-hunit
+    , tasty-hspec
     , text
 
   hs-source-dirs: test
