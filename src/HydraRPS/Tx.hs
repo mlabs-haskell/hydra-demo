@@ -9,6 +9,7 @@ module HydraRPS.Tx (
   txInForValidator,
   txOutToScript,
   txOutToAddress,
+  txOutValueToAddress,
 ) where
 
 import Cardano.Api
@@ -95,6 +96,9 @@ txOutToScript networkId scriptAddress lovelace (TxDatum datum) = do
 
 txOutToAddress :: AddressInEra AlonzoEra -> Lovelace -> TxOut ctx AlonzoEra
 txOutToAddress address lovelace = TxOut address (lovelaceToTxOutValue lovelace) TxOutDatumNone
+
+txOutValueToAddress :: AddressInEra AlonzoEra -> Cardano.Api.Value -> TxOut ctx AlonzoEra
+txOutValueToAddress address value = TxOut address (TxOutValue MultiAssetInAlonzoEra value) TxOutDatumNone
 
 signTx :: SigningKey PaymentKey -> TxBody AlonzoEra -> Tx AlonzoEra
 signTx signingKey body = Tx body [witness]

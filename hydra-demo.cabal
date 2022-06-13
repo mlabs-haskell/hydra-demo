@@ -101,6 +101,8 @@ executable hydra-rps-game
     , lens
     , mtl
     , plutus-ledger
+    , plutus-ledger-api
+    , plutus-tx
     , text
     , transformers
     , websockets
