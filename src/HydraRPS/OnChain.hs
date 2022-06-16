@@ -40,7 +40,7 @@ import PlutusTx.Prelude
 import Prelude qualified
 
 data Gesture = Rock | Paper | Scissors
-  deriving stock (Generic, Prelude.Eq)
+  deriving stock (Generic, Prelude.Bounded, Prelude.Enum, Prelude.Eq)
   deriving anyclass (FromJSON, ToJSON)
 PlutusTx.unstableMakeIsData ''Gesture
 
