@@ -25,8 +25,12 @@ common common-lang
 
   build-depends:
     , base                     ^>=4.14
+    , async
+    , mtl
+    , transformers
     , record-dot-preprocessor
     , record-hasfield
+    , websockets
 
   default-extensions:
     NoImplicitPrelude
@@ -67,6 +71,7 @@ library
   import:          common-lang
   exposed-modules:
     HydraRPS.Node.Command
+    HydraRPS.App
     HydraRPS.OffChain
     HydraRPS.OnChain
     HydraRPS.Tx
@@ -93,19 +98,15 @@ executable hydra-rps-game
   main-is:        Main.hs
   build-depends:
     , aeson
-    , async
     , bytestring
     , cardano-api
     , containers
     , hydra-demo
     , lens
-    , mtl
     , plutus-ledger
     , plutus-ledger-api
     , plutus-tx
     , text
-    , transformers
-    , websockets
 
   hs-source-dirs: app
 
