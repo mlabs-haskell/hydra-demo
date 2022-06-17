@@ -20,7 +20,7 @@ services:
       ]
 
   hydra-node-alice:
-    image: ghcr.io/input-output-hk/hydra-node@sha256:726af9dd5947d5942a26a24af7668987deab089ae6c92601da35f988d8f8a0eb
+    image: ghcr.io/input-output-hk/hydra-node@sha256:6ff08464a426fe2e6e4c7b4c091cc61cae10efa28276adf0914f2d33bd45742a
     build:
       context: ../
       target: hydra-node
@@ -52,7 +52,7 @@ services:
     restart: always
 
   hydra-node-bob:
-    image: ghcr.io/input-output-hk/hydra-node@sha256:726af9dd5947d5942a26a24af7668987deab089ae6c92601da35f988d8f8a0eb
+    image: ghcr.io/input-output-hk/hydra-node@sha256:6ff08464a426fe2e6e4c7b4c091cc61cae10efa28276adf0914f2d33bd45742a
     build:
       context: ../
       target: hydra-node
