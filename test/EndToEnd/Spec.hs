@@ -4,7 +4,7 @@
 
 module EndToEnd.Spec (spec, headTests) where
 
-import Hydra.Prelude
+import Hydra.Prelude hiding (threadDelay)
 import Test.Hydra.Prelude
 
 import qualified Cardano.Api.UTxO as UTxO
@@ -65,11 +65,13 @@ import Test.QuickCheck (generate)
 import Test.Tasty (TestTree)
 import Test.Tasty.Hspec (testSpec)
 import Hydra.Cluster.Util (readConfigFile)
-import HydraRPS.App (UserCommand (..), AppEvent (..), withApiClient, HeadState (..), mkUserCredentials)
+import HydraRPS.App (UserCommand (..), AppEvent (..), withApiClient, HeadState (..), mkUserCredentials, EnqueueCommand)
 import HydraRPS.UserInput (PlayParams (..))
-import HydraRPS.OnChain (Gesture (..))
-import Control.Concurrent (writeChan)
+import HydraRPS.OnChain (Gesture (..), encryptGesture, GameDatum (..))
+import Ledger qualified as Ledger
+import Control.Concurrent (writeChan, threadDelay)
 import qualified Prelude
+import PlutusTx qualified as PlutusTx
 
 allNodeIds :: [Int]
 allNodeIds = [1 .. 3]
@@ -228,6 +230,26 @@ initAndClose tracer node@(RunningNode _ nodeSocket) = do
           failAfter 5 $ waitForUTxO defaultNetworkId nodeSocket u
 
 
+withTestApiClients :: Int -> [HeadState] -> ([EnqueueCommand] -> IO ()) -> IO ()
+withTestApiClients firstNodeId states action = do
+    initClients [] allNodeIds
+  where
+    allNodeIds = [firstNodeId .. firstNodeId + (length states) - 1]
+
+    initClients enqueueFns = \case
+      [] -> action (reverse enqueueFns)
+      (nodeId : rest) -> do
+        let headState = states Prelude.!! (nodeId - firstNodeId)
+            host = "127.0.0.1"
+            port = 4000 + nodeId
+        withApiClient headState host port $ \enqueue' -> do
+          -- We need to add a delay as we have both the hydra-client socket to read output and the cli-client one to send commands. We don't want the cli-client to issue commands before it has reached the state in which the hydra-client is
+          let enqueue cmd = do
+                threadDelay 10000
+                enqueue' cmd
+          initClients (enqueue : enqueueFns) rest
+
+
 initBetAndClose :: Tracer IO EndToEndLog -> RunningNode -> IO ()
 initBetAndClose tracer node@(RunningNode _ nodeSocket) = do
   withTempDir "end-to-end-init-bet-and-close" $ \tmpDir -> do
@@ -263,35 +285,39 @@ initBetAndClose tracer node@(RunningNode _ nodeSocket) = do
           aliceState = HeadState aliceCredentials defaultNetworkId protocolParams
           bobState = HeadState bobCredentials defaultNetworkId protocolParams
       putStrLn "starting client"
-      withApiClient aliceState "127.0.0.1" 4000 $ \enqueueAliceCommand' -> do
-        withApiClient bobState "127.0.0.1" 4001 $ \enqueueBobCommand' -> do
-          putStrLn "api client ready \n"
-          let enqueueAliceCommand = do
-                threadDelay 500
-                enqueueAliceCommand'
-          let enqueueBobCommand = do
-                threadDelay 500
-                enqueueBobCommand'
-          enqueueAliceCommand $ InitHead contestationPeriod
+      withTestApiClients firstNodeId [aliceState, bobState] $ \[enqueueAliceCommand, enqueueBobCommand] -> do
+        putStrLn "api client ready \n"
 
-          -- send aliceNode $ input "Init" ["contestationPeriod" .= contestationPeriod]
-          -- newBobNode <- withNewClient bobNode pure
-          waitFor tracer 10 [aliceNode, bobNode] $
-            output "ReadyToCommit" ["parties" .= Set.fromList [alice, bob]]
+        enqueueAliceCommand $ InitHead contestationPeriod
 
-          -- Get some UTXOs to commit to a head
-          committedUTxOByAlice <- seedFromFaucet defaultNetworkId node aliceCardanoVk aliceCommittedToHead Normal
-          committedUTxOByBob <- seedFromFaucet defaultNetworkId node bobCardanoVk bobCommittedToHead Normal
-          enqueueAliceCommand $ CommitToHead (UTxO.toApi committedUTxOByAlice)
-          enqueueBobCommand $ CommitToHead (UTxO.toApi  committedUTxOByBob)
+        -- send aliceNode $ input "Init" ["contestationPeriod" .= contestationPeriod]
+        -- newBobNode <- withNewClient bobNode pure
+        waitFor tracer 10 [aliceNode, bobNode] $
+          output "ReadyToCommit" ["parties" .= Set.fromList [alice, bob]]
 
-          waitFor tracer 20 [aliceNode, bobNode] $ output "HeadIsOpen" ["utxo" .= (committedUTxOByAlice <> committedUTxOByBob)]
+        -- Get some UTXOs to commit to a head
+        committedUTxOByAlice <- seedFromFaucet defaultNetworkId node aliceCardanoVk aliceCommittedToHead Normal
+        committedUTxOByBob <- seedFromFaucet defaultNetworkId node bobCardanoVk bobCommittedToHead Normal
+        enqueueAliceCommand $ CommitToHead (UTxO.toApi committedUTxOByAlice)
+        enqueueBobCommand $ CommitToHead (UTxO.toApi  committedUTxOByBob)
 
-          enqueueAliceCommand $ Bet $ PlayParams { ppGesture = Rock, ppSalt = "1234" }
+        waitFor tracer 20 [aliceNode, bobNode] $ output "HeadIsOpen" ["utxo" .= (committedUTxOByAlice <> committedUTxOByBob)]
 
-          waitFor tracer 10 [aliceNode, bobNode] $ output "HeadIsOpena" ["utxo" .= (committedUTxOByAlice <> committedUTxOByBob)]
-          pure ()
+        let gesture = Rock
+            salt    = "1234"
+        enqueueAliceCommand $ Bet $ PlayParams gesture salt
 
+        -- waitFor tracer 10 [aliceNode, bobNode] $ output "HeadIsOpena" ["utxo" .= (committedUTxOByAlice <> committedUTxOByBob)]
+        let expectedDatumHash = Ledger.datumHash $ Ledger.Datum $ PlutusTx.toBuiltinData $ GameDatum (encryptGesture gesture salt) aliceState.hsUserCredentials.userPubKeyHash
+        putStrLn $ show expectedDatumHash
+        tId <- waitMatch 20 aliceNode $ \v -> do
+          guard $ v ^? key "tag" == Just "TxValid"
+          transaction <- v ^? key "transaction"
+          -- datumHash <- transaction ^? key "datumhash"
+          -- guard $ datumHash == expectedDatumHash
+          transaction ^? key "id"
+
+        putStrLn $ show tId
 
 --
 -- Fixtures

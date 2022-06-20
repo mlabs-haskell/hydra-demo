@@ -140,27 +140,6 @@ clientFromConnection headState events ws = do
   withAsync (apiReader nextServerEvent enqueueApiEvent) $ \_ ->
     runInHead headState (eventProcessor submitCommand nextEvent)
 
--- buildChannel :: Connection -> IO (Chan AppEvent)
--- buildChannel ws = do
---   events <- newChan
---   let nextServerEvent :: IO ByteString
---       nextServerEvent = receiveData ws
-
---       submitCommand :: (MonadIO m, ToJSON a) => a -> m ()
---       submitCommand input = do
---         let json = encode input
---         liftIO $ Text.putStrLn $ "client input:\n" <> decodeUtf8 json <> "\n"
---         liftIO $ sendTextData ws json
-
---   let enqueueApiEvent :: Maybe ServerOutput -> IO ()
---       enqueueApiEvent = writeChan events . ApiEvent
-
---       nextEvent :: IO AppEvent
---       nextEvent = readChan events
-  
---   _ <- async (apiReader nextServerEvent enqueueApiEvent) 
---   pure events
-
 
 data HeadState = HeadState
   { hsUserCredentials :: UserCredentials
