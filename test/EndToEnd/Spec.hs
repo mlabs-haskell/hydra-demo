@@ -1,109 +1,82 @@
-
 {-# LANGUAGE TypeApplications #-}
-{-# OPTIONS_GHC -w #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 module EndToEnd.Spec (spec, headTests) where
 
 import Hydra.Prelude hiding (threadDelay)
 import Test.Hydra.Prelude
 
-import qualified Cardano.Api.UTxO as UTxO
+import Cardano.Api.UTxO qualified as UTxO
 import CardanoClient (waitForUTxO)
 import CardanoCluster (
   Marked (Fuel, Normal),
-  chainConfigFor,
   defaultNetworkId,
-  keysFor,
   seedFromFaucet,
   seedFromFaucet_,
  )
 import CardanoNode (RunningNode (RunningNode), newNodeConfig, withBFTNode)
-import Control.Lens ((^?))
-import Data.Aeson (Result (..), Value (Object, String), fromJSON, object, (.=), eitherDecodeStrict')
-import Data.Aeson.Lens (key)
+import Control.Concurrent (threadDelay)
+import Control.Lens (anyOf, (^?))
+import Data.Aeson (Result (..), Value (Object, String), eitherDecodeStrict', fromJSON, object, (.=))
+import Data.Aeson.Lens (key, values)
+import Data.Map qualified as Map
+import Data.Set qualified as Set
 import Data.Text (pack)
-import qualified Data.Map as Map
-import qualified Data.Set as Set
 import Hydra.Cardano.Api (
   AddressInEra,
   NetworkId (Testnet),
   NetworkMagic (NetworkMagic),
   PaymentKey,
-  TxId,
+  ProtocolParameters,
   TxIn (..),
   VerificationKey,
   lovelaceToValue,
   mkVkAddress,
   serialiseAddress,
   unSlotNo,
-  ProtocolParameters
  )
 import Hydra.Chain.Direct.Handlers (closeGraceTime)
-import Hydra.Crypto (deriveVerificationKey, generateSigningKey)
-import qualified Hydra.Crypto as Hydra
+import Hydra.Cluster.Util (readConfigFile)
+import Hydra.Crypto (generateSigningKey)
+import Hydra.Crypto qualified as Hydra
 import Hydra.Ledger (txId)
-import Hydra.Ledger.Cardano (genKeyPair, mkSimpleTx)
+import Hydra.Ledger.Cardano (Tx, genKeyPair, mkSimpleTx)
 import Hydra.Logging (Tracer, showLogsOnFailure)
 import Hydra.Party (Party, deriveParty)
 import HydraNode (
   EndToEndLog (..),
-  getMetrics,
   input,
   output,
-  proc,
-  readCreateProcess,
   send,
   waitFor,
   waitForNodesConnected,
   waitMatch,
   withHydraCluster,
-  withHydraNode,
-  connection,
-  withNewClient
  )
+import HydraRPS.App (EnqueueCommand, HeadState (..), UserCommand (..), betConstant, mkUserCredentials, withApiClient)
+import HydraRPS.OnChain (GameDatum (..), Gesture (..), encryptGesture, rpsValidatorAddress)
+import HydraRPS.UserInput (PlayParams (..))
+import Ledger qualified
+import Ledger.Tx.CardanoAPI (toCardanoAddress)
+import PlutusTx qualified
 import Test.QuickCheck (generate)
 import Test.Tasty (TestTree)
 import Test.Tasty.Hspec (testSpec)
-import Hydra.Cluster.Util (readConfigFile)
-import HydraRPS.App (UserCommand (..), AppEvent (..), withApiClient, HeadState (..), mkUserCredentials, EnqueueCommand)
-import HydraRPS.UserInput (PlayParams (..))
-import HydraRPS.OnChain (Gesture (..), encryptGesture, GameDatum (..))
-import Ledger qualified as Ledger
-import Control.Concurrent (writeChan, threadDelay)
-import qualified Prelude
-import PlutusTx qualified as PlutusTx
-
-allNodeIds :: [Int]
-allNodeIds = [1 .. 3]
+import Prelude qualified
 
 headTests :: IO TestTree
 headTests = testSpec "Head" spec
 
 spec :: Spec
 spec = around showLogsOnFailure $ do
-  let aliceSk, bobSk, carolSk :: Hydra.SigningKey
-      aliceSk = generateSigningKey "alice"
-      bobSk = generateSigningKey "bob"
-      carolSk = generateSigningKey "carol"
-
-      aliceVk, bobVk, carolVk :: Hydra.VerificationKey
-      aliceVk = deriveVerificationKey aliceSk
-      bobVk = deriveVerificationKey bobSk
-      carolVk = deriveVerificationKey carolSk
-
-      alice, bob, carol :: Party
-      alice = deriveParty aliceSk
-      bob = deriveParty bobSk
-      carol = deriveParty carolSk
-
-  -- describe "End-to-end test using a single cardano-node" $ do
-  --   describe "three hydra nodes scenario" $
-  --     it "inits a Head, processes a single Cardano transaction and closes it again" $ \tracer ->
-  --       failAfter 60 $
-  --         withTempDir "end-to-end-cardano-node" $ \tmpDir -> do
-  --           config <- newNodeConfig tmpDir
-  --           withBFTNode (contramap FromCardanoNode tracer) config $ \node -> do
-  --             initAndClose tracer node
+  describe "End-to-end test using a single cardano-node" $ do
+    describe "three hydra nodes scenario" $
+      it "inits a Head, processes a single Cardano transaction and closes it again" $ \tracer ->
+        failAfter 60 $
+          withTempDir "end-to-end-cardano-node" $ \tmpDir -> do
+            config <- newNodeConfig tmpDir
+            withBFTNode (contramap FromCardanoNode tracer) config $ \node -> do
+              initAndClose tracer node
 
   describe "RPS tests" $ do
     describe "place and observe bet" $
@@ -114,7 +87,25 @@ spec = around showLogsOnFailure $ do
             withBFTNode (contramap FromCardanoNode tracer) config $ \node -> do
               initBetAndClose tracer node
 
-  
+withTestApiClients :: Int -> [HeadState] -> ([EnqueueCommand] -> IO ()) -> IO ()
+withTestApiClients firstNodeId states action = do
+  initClients [] allNodeIds
+  where
+    allNodeIds = [firstNodeId .. firstNodeId + length states - 1]
+
+    initClients enqueueFns = \case
+      [] -> action (reverse enqueueFns)
+      (nodeId : rest) -> do
+        let headState = states Prelude.!! (nodeId - firstNodeId)
+            host = "127.0.0.1"
+            port = 4000 + nodeId
+        withApiClient headState host port $ \enqueue' -> do
+          -- We need to add a delay as we have both the hydraClient socket to read output (coming from withHydraCluster) and our own client to send commands. We don't want our client to issue commands before it has reached the state in which the hydraClient is
+          let enqueue cmd = do
+                threadDelay 10000
+                enqueue' cmd
+          initClients (enqueue : enqueueFns) rest
+
 initAndClose :: Tracer IO EndToEndLog -> RunningNode -> IO ()
 initAndClose tracer node@(RunningNode _ nodeSocket) = do
   withTempDir "end-to-end-init-and-close" $ \tmpDir -> do
@@ -122,13 +113,14 @@ initAndClose tracer node@(RunningNode _ nodeSocket) = do
     bobKeys@(bobCardanoVk, _) <- generate genKeyPair
     carolKeys@(carolCardanoVk, _) <- generate genKeyPair
 
-    let aliceSk = generateSigningKey "alice"
-    let bobSk = generateSigningKey "bob"
-    let carolSk = generateSigningKey "carol"
-
-    let alice = deriveParty aliceSk
-    let bob = deriveParty bobSk
-    let carol = deriveParty carolSk
+    let aliceSk, bobSk, carolSk :: Hydra.SigningKey
+        aliceSk = generateSigningKey "alice"
+        bobSk = generateSigningKey "bob"
+        carolSk = generateSigningKey "carol"
+    let alice, bob, carol :: Party
+        alice = deriveParty aliceSk
+        bob = deriveParty bobSk
+        carol = deriveParty carolSk
 
     let cardanoKeys = [aliceKeys, bobKeys, carolKeys]
         hydraKeys = [aliceSk, bobSk, carolSk]
@@ -164,7 +156,7 @@ initAndClose tracer node@(RunningNode _ nodeSocket) = do
       let Right tx =
             mkSimpleTx
               firstCommittedUTxO
-              (inHeadAddress bobCardanoVk, lovelaceToValue paymentFromAliceToBob)
+              (inHeadVKeyAddress bobCardanoVk, lovelaceToValue paymentFromAliceToBob)
               aliceCardanoSk
       send n1 $ input "NewTx" ["transaction" .= tx]
       waitFor tracer 10 [n1, n2, n3] $
@@ -178,14 +170,14 @@ initAndClose tracer node@(RunningNode _ nodeSocket) = do
               [
                 ( TxIn (txId tx) (toEnum 0)
                 , object
-                    [ "address" .= String (serialiseAddress $ inHeadAddress bobCardanoVk)
+                    [ "address" .= String (serialiseAddress $ inHeadVKeyAddress bobCardanoVk)
                     , "value" .= object ["lovelace" .= int paymentFromAliceToBob]
                     ]
                 )
               ,
                 ( TxIn (txId tx) (toEnum 1)
                 , object
-                    [ "address" .= String (serialiseAddress $ inHeadAddress aliceCardanoVk)
+                    [ "address" .= String (serialiseAddress $ inHeadVKeyAddress aliceCardanoVk)
                     , "value" .= object ["lovelace" .= int (aliceCommittedToHead - paymentFromAliceToBob)]
                     ]
                 )
@@ -214,9 +206,7 @@ initAndClose tracer node@(RunningNode _ nodeSocket) = do
         snapshotNumber <- v ^? key "snapshotNumber"
         guard $ snapshotNumber == toJSON expectedSnapshotNumber
 
-      -- NOTE: We expect the head to be finalized after the contestation period
-      -- and some three secs later, plus the closeGraceTime * slotLength
-      waitFor tracer (truncate $ contestationPeriod + (fromIntegral @_ @Double (unSlotNo closeGraceTime) * 0.1) + 3) [n1] $
+      waitFor tracer (expectedContestationPeriod contestationPeriod) [n1] $
         output "ReadyToFanout" []
 
       send n1 $ input "Fanout" []
@@ -229,51 +219,32 @@ initAndClose tracer node@(RunningNode _ nodeSocket) = do
         Success u ->
           failAfter 5 $ waitForUTxO defaultNetworkId nodeSocket u
 
-
-withTestApiClients :: Int -> [HeadState] -> ([EnqueueCommand] -> IO ()) -> IO ()
-withTestApiClients firstNodeId states action = do
-    initClients [] allNodeIds
-  where
-    allNodeIds = [firstNodeId .. firstNodeId + (length states) - 1]
-
-    initClients enqueueFns = \case
-      [] -> action (reverse enqueueFns)
-      (nodeId : rest) -> do
-        let headState = states Prelude.!! (nodeId - firstNodeId)
-            host = "127.0.0.1"
-            port = 4000 + nodeId
-        withApiClient headState host port $ \enqueue' -> do
-          -- We need to add a delay as we have both the hydra-client socket to read output and the cli-client one to send commands. We don't want the cli-client to issue commands before it has reached the state in which the hydra-client is
-          let enqueue cmd = do
-                threadDelay 10000
-                enqueue' cmd
-          initClients (enqueue : enqueueFns) rest
-
-
 initBetAndClose :: Tracer IO EndToEndLog -> RunningNode -> IO ()
 initBetAndClose tracer node@(RunningNode _ nodeSocket) = do
   withTempDir "end-to-end-init-bet-and-close" $ \tmpDir -> do
     aliceKeys@(aliceCardanoVk, aliceCardanoSk) <- generate genKeyPair
     bobKeys@(bobCardanoVk, bobCardanoSk) <- generate genKeyPair
 
-    let aliceSk = generateSigningKey "alice"
-    let bobSk = generateSigningKey "bob"
+    let aliceSk, bobSk :: Hydra.SigningKey
+        aliceSk = generateSigningKey "alice"
+        bobSk = generateSigningKey "bob"
 
-    let alice = deriveParty aliceSk
-    let bob = deriveParty bobSk
+        alice, bob :: Party
+        alice = deriveParty aliceSk
+        bob = deriveParty bobSk
 
-    let cardanoKeys = [aliceKeys, bobKeys]
+        cardanoKeys = [aliceKeys, bobKeys]
         hydraKeys = [aliceSk, bobSk]
 
-    let firstNodeId = 0
+        firstNodeId = 0
 
     withHydraCluster tracer tmpDir nodeSocket firstNodeId cardanoKeys hydraKeys $ \nodes -> do
       let [aliceNode, bobNode] = toList nodes
       waitForNodesConnected tracer [aliceNode, bobNode]
       putStrLn "\nnodes are up"
-      -- nodes need to be up to observe fuel tx
-      -- hydra node port is 5000 + id
+
       -- Funds to be used as fuel by Hydra protocol transactions
+      -- nodes need to be up to observe fuel tx
       seedFromFaucet_ defaultNetworkId node aliceCardanoVk 100_000_000 Fuel
       seedFromFaucet_ defaultNetworkId node bobCardanoVk 100_000_000 Fuel
 
@@ -286,12 +257,8 @@ initBetAndClose tracer node@(RunningNode _ nodeSocket) = do
           bobState = HeadState bobCredentials defaultNetworkId protocolParams
       putStrLn "starting client"
       withTestApiClients firstNodeId [aliceState, bobState] $ \[enqueueAliceCommand, enqueueBobCommand] -> do
-        putStrLn "api client ready \n"
-
         enqueueAliceCommand $ InitHead contestationPeriod
 
-        -- send aliceNode $ input "Init" ["contestationPeriod" .= contestationPeriod]
-        -- newBobNode <- withNewClient bobNode pure
         waitFor tracer 10 [aliceNode, bobNode] $
           output "ReadyToCommit" ["parties" .= Set.fromList [alice, bob]]
 
@@ -299,25 +266,81 @@ initBetAndClose tracer node@(RunningNode _ nodeSocket) = do
         committedUTxOByAlice <- seedFromFaucet defaultNetworkId node aliceCardanoVk aliceCommittedToHead Normal
         committedUTxOByBob <- seedFromFaucet defaultNetworkId node bobCardanoVk bobCommittedToHead Normal
         enqueueAliceCommand $ CommitToHead (UTxO.toApi committedUTxOByAlice)
-        enqueueBobCommand $ CommitToHead (UTxO.toApi  committedUTxOByBob)
+        enqueueBobCommand $ CommitToHead (UTxO.toApi committedUTxOByBob)
 
-        waitFor tracer 20 [aliceNode, bobNode] $ output "HeadIsOpen" ["utxo" .= (committedUTxOByAlice <> committedUTxOByBob)]
+        waitFor tracer 10 [aliceNode, bobNode] $ output "HeadIsOpen" ["utxo" .= (committedUTxOByAlice <> committedUTxOByBob)]
 
         let gesture = Rock
-            salt    = "1234"
+            salt = "1234"
+
         enqueueAliceCommand $ Bet $ PlayParams gesture salt
 
-        -- waitFor tracer 10 [aliceNode, bobNode] $ output "HeadIsOpena" ["utxo" .= (committedUTxOByAlice <> committedUTxOByBob)]
-        let expectedDatumHash = Ledger.datumHash $ Ledger.Datum $ PlutusTx.toBuiltinData $ GameDatum (encryptGesture gesture salt) aliceState.hsUserCredentials.userPubKeyHash
-        putStrLn $ show expectedDatumHash
-        tId <- waitMatch 20 aliceNode $ \v -> do
-          guard $ v ^? key "tag" == Just "TxValid"
-          transaction <- v ^? key "transaction"
-          -- datumHash <- transaction ^? key "datumhash"
-          -- guard $ datumHash == expectedDatumHash
-          transaction ^? key "id"
+        let expectedDatumHash = String $ show $ Ledger.datumHash $ Ledger.Datum $ PlutusTx.toBuiltinData $ GameDatum (encryptGesture gesture salt) aliceState.hsUserCredentials.userPubKeyHash
 
-        putStrLn $ show tId
+        txJson <- waitMatch 10 bobNode $ \v -> do
+          guard $ v ^? key "tag" == Just "TxSeen"
+          transaction <- v ^? key "transaction"
+          body <- transaction ^? key "body"
+          outputs <- body ^? key "outputs"
+          guard $ anyOf values (\tx -> maybe False (== expectedDatumHash) (tx ^? key "datumhash")) outputs
+          pure transaction
+
+        tx :: Tx <- do
+          case fromJSON txJson of
+            Error err -> failure $ "tx isn't valid JSON?: " <> err
+            Success a -> pure a
+
+        let expectedSnapshotNumber :: Int
+            expectedSnapshotNumber = 1
+
+            newUTxO :: Map.Map TxIn Value
+            newUTxO =
+              Map.fromList
+                [
+                  ( TxIn (txId tx) (toEnum 0)
+                  , object
+                      [ "address" .= String (serialiseAddress $ inHeadScriptAddress rpsValidatorAddress)
+                      , "datumhash" .= expectedDatumHash
+                      , "value" .= object ["lovelace" .= betConstant]
+                      ]
+                  )
+                ,
+                  ( TxIn (txId tx) (toEnum 1)
+                  , object
+                      [ "address" .= String (serialiseAddress $ inHeadVKeyAddress aliceCardanoVk)
+                      , "value" .= object ["lovelace" .= (aliceCommittedToHead - betConstant)]
+                      ]
+                  )
+                ]
+                <> fmap toJSON (Map.fromList (UTxO.pairs committedUTxOByBob))
+
+            expectedSnapshot :: Value
+            expectedSnapshot =
+              object
+                [ "snapshotNumber" .= int expectedSnapshotNumber
+                , "utxo" .= newUTxO
+                , "confirmedTransactions" .= [tx]
+                ]
+
+        waitMatch 10 bobNode $ \v -> do
+          guard $ v ^? key "tag" == Just "SnapshotConfirmed"
+          snapshot <- v ^? key "snapshot"
+          guard $ snapshot == expectedSnapshot
+
+        enqueueAliceCommand CloseHead
+
+        waitMatch 10 bobNode $ \v -> do
+          guard $ v ^? key "tag" == Just "HeadIsClosed"
+          snapshotNumber <- v ^? key "snapshotNumber"
+          guard $ snapshotNumber == toJSON expectedSnapshotNumber
+
+        waitFor tracer (expectedContestationPeriod contestationPeriod) [aliceNode, bobNode] $
+          output "ReadyToFanout" []
+
+        enqueueAliceCommand IssueFanout
+
+        waitFor tracer 3 [aliceNode, bobNode] $
+          output "HeadIsFinalized" ["utxo" .= toJSON newUTxO]
 
 --
 -- Fixtures
@@ -332,14 +355,15 @@ bobCommittedToHead = 5_000_000
 paymentFromAliceToBob :: Num a => a
 paymentFromAliceToBob = 1_000_000
 
-someTxId :: IsString s => s
-someTxId = "9fdc525c20bc00d9dfa9d14904b65e01910c0dfe3bb39865523c1e20eaeb0903"
+network :: NetworkId
+network = Testnet (NetworkMagic 14)
 
-inHeadAddress :: VerificationKey PaymentKey -> AddressInEra
-inHeadAddress =
+inHeadVKeyAddress :: VerificationKey PaymentKey -> AddressInEra
+inHeadVKeyAddress =
   mkVkAddress network
- where
-  network = Testnet (NetworkMagic 14)
+
+inHeadScriptAddress :: Ledger.Address -> AddressInEra
+inHeadScriptAddress addr = either (error . show) id $ toCardanoAddress network addr
 
 --
 -- Helpers
@@ -348,9 +372,8 @@ inHeadAddress =
 int :: Int -> Int
 int = id
 
-outputRef :: TxId -> Natural -> Value
-outputRef tid tix =
-  object
-    [ "txId" .= tid
-    , "index" .= tix
-    ]
+expectedContestationPeriod :: Int -> Natural
+expectedContestationPeriod contestationPeriod =
+  -- NOTE: We expect the head to be finalized after the contestation period
+  -- and some three secs later, plus the closeGraceTime * slotLength
+  truncate $ (fromIntegral @_ @Double (unSlotNo closeGraceTime) * 0.1) + fromIntegral contestationPeriod + 3

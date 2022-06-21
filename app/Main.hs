@@ -1,93 +1,29 @@
-{-# OPTIONS_GHC -w #-}
 module Main (main) where
 
 import Cardano.Api (
-  AddressInEra,
-  AlonzoEra,
   AsType (AsAddressInEra, AsAlonzoEra, AsPaymentKey, AsSigningKey),
-  BuildTxWith (BuildTxWith),
-  CollateralSupportedInEra (CollateralInAlonzoEra),
-  ExecutionUnits (ExecutionUnits, executionMemory, executionSteps),
-  Hash,
-  Key (getVerificationKey, verificationKeyHash),
   Lovelace (..),
   NetworkId (Testnet),
   NetworkMagic (NetworkMagic),
-  PaymentCredential (PaymentCredentialByKey),
-  PaymentKey,
-  ScriptData,
   SerialiseAddress (deserialiseAddress, serialiseAddress),
-  SigningKey,
-  StakeAddressReference (NoStakeAddress),
-  TxBody,
-  TxBodyContent (txIns, txInsCollateral, txOuts, txProtocolParams),
-  TxIn,
-  TxInsCollateral (TxInsCollateral),
-  TxOut (TxOut),
-  TxOutDatum (TxOutDatumHash),
-  UTxO (UTxO, unUTxO),
-  hashScriptData,
-  makeShelleyAddressInEra,
-  makeTransactionBody,
+  UTxO (UTxO),
   readFileTextEnvelope,
-  txOutValueToValue,
-  valueToLovelace,
  )
-import Cardano.Api qualified (Value)
-import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits))
-import Control.Concurrent (newChan, readChan, writeChan , Chan)
-import Control.Concurrent.Async (AsyncCancelled (AsyncCancelled), withAsync, async)
+
+import Control.Concurrent.Async (AsyncCancelled (AsyncCancelled))
 import Control.Exception (SomeException, displayException, fromException, try)
 import Control.Monad (when)
-import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Reader.Class (MonadReader, ask)
-import Control.Monad.Trans.Reader (ReaderT, runReaderT)
-import Data.Aeson (FromJSON, Result (Success), ToJSON, Value (String), eitherDecode, eitherDecodeFileStrict', encode, fromJSON, (.:))
-import Data.Aeson.Types (parseEither)
-import Data.Bifunctor (first)
-import Data.ByteString.Lazy (ByteString)
-import Data.Kind (Type)
-import Data.List (sortOn)
-import Data.Map (Map)
-import Data.Map qualified as Map (filter, lookupMin, mapMaybe, singleton, toList)
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Aeson (FromJSON, Result (Success), Value (String), eitherDecodeFileStrict', fromJSON)
+import Data.Map qualified as Map (singleton)
 import Data.String (fromString)
-import Data.Text.Lazy (Text, fromStrict)
-import Data.Text.Lazy.Encoding (decodeUtf8)
+import Data.Text.Lazy (fromStrict)
 import Data.Text.Lazy.IO qualified as Text (putStrLn)
-import Ledger qualified (Address (Address), PubKeyHash (PubKeyHash), toCardanoAPIData)
-import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash, toCardanoAddress)
-import Network.WebSockets (ConnectionException, receiveData, runClient, sendTextData, Connection)
-import Plutus.V1.Ledger.Api (Credential (PubKeyCredential))
-import PlutusTx (ToData (toBuiltinData))
-import PlutusTx.Prelude (BuiltinByteString)
+import HydraRPS.App (HeadState (..), UserCommand (..), UserCredentials, mkUserCredentials, withApiClient)
+import HydraRPS.Tx (parseTxIn, txOutToAddress)
+import HydraRPS.UserInput qualified as UserInput
+import Ledger qualified (PubKeyHash (PubKeyHash))
 import System.Environment (getArgs)
 import System.IO.Error (isEOFError)
-
-import HydraRPS.Node.Command qualified as NodeCommand
-import HydraRPS.OnChain (
-  GameDatum (..),
-  GameRedeemer (GameRedeemer),
-  Gesture,
-  beats,
-  encryptGesture,
-  rpsValidator,
-  rpsValidatorAddress,
- )
-import HydraRPS.Tx (
-  TxDatum (TxDatum),
-  TxRedeemer (TxRedeemer),
-  baseBodyContent,
-  parseTxIn,
-  signTx,
-  txInForSpending,
-  txInForValidator,
-  txOutToAddress,
-  txOutToScript,
-  txOutValueToAddress,
- )
-import HydraRPS.UserInput qualified as UserInput
-import HydraRPS.App
 import Prelude
 
 main :: IO ()
@@ -131,28 +67,24 @@ processCLICommand = do
       ["exit"] -> pure $ Just Exit
       ["abort"] -> pure $ Just AbortHead
       ["close"] -> pure $ Just CloseHead
-      ["fanout"] -> pure $ Just IssueFanout 
+      ["fanout"] -> pure $ Just IssueFanout
       ["init", str] | [(period, "")] <- reads str -> do
         putStrLn "parsed init"
         pure $ Just $ InitHead period
-
       ["commit", txInStr, addrStr, lovelaceStr]
         | Right txIn <- parseTxIn (fromString txInStr)
           , Just addr <- deserialiseAddress (AsAddressInEra AsAlonzoEra) (fromString addrStr)
           , Just lovelace <- parseLovelace lovelaceStr -> do
           pure $ Just $ CommitToHead $ UTxO $ Map.singleton txIn (txOutToAddress addr lovelace)
-
       ["bet", gestureStr, saltStr]
         | Success gesture <- readFromJsonString gestureStr
           , Success salt <- readFromJsonString saltStr -> do
           pure $ Just $ Bet $ UserInput.PlayParams gesture salt
-
       ["claim", mySaltStr, theirPkhStr, theirSaltStr]
         | Success mySalt <- readFromJsonString mySaltStr
           , Success theirPkh <- readFromJsonString theirPkhStr
           , Success theirSalt <- readFromJsonString theirSaltStr -> do
           pure $ Just $ Claim $ UserInput.ClaimParams mySalt (Ledger.PubKeyHash theirPkh) theirSalt
-
       cmd -> do
         putStrLn $ "input: unknown command " <> show cmd
         pure Nothing
@@ -164,3 +96,9 @@ processCLICommand = do
     parseLovelace str
       | [(lovelace, "")] <- reads str = Just (Lovelace lovelace)
       | otherwise = Nothing
+
+unexpectedInputException :: SomeException -> Bool
+unexpectedInputException ex
+  | Just io <- fromException ex, isEOFError io = False
+  | Just AsyncCancelled <- fromException ex = False
+  | otherwise = True

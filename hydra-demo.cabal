@@ -124,6 +124,7 @@ test-suite hydra-rps-game-test
     , bytestring
     , cardano-api
     , containers
+    , extra
     , filepath
     , hydra-demo
     , hydra-cluster
@@ -145,3 +146,8 @@ test-suite hydra-rps-game-test
     , text
 
   hs-source-dirs: test
+
+  build-tool-depends:
+    hydra-node:hydra-node -any, cardano-node:cardano-node -any
+
+  ghc-options:        -threaded -rtsopts

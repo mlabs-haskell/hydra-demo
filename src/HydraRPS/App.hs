@@ -1,22 +1,18 @@
-{-# OPTIONS_GHC -w #-}
-module HydraRPS.App where
+module HydraRPS.App (EnqueueCommand, HeadState (..), UserCommand (..), betConstant, withApiClient, UserCredentials, mkUserCredentials) where
 
 import Cardano.Api (
   AddressInEra,
   AlonzoEra,
-  AsType (AsAddressInEra, AsAlonzoEra, AsPaymentKey, AsSigningKey),
   BuildTxWith (BuildTxWith),
   CollateralSupportedInEra (CollateralInAlonzoEra),
   ExecutionUnits (ExecutionUnits, executionMemory, executionSteps),
   Hash,
   Key (getVerificationKey, verificationKeyHash),
   Lovelace (..),
-  NetworkId (Testnet),
-  NetworkMagic (NetworkMagic),
+  NetworkId,
   PaymentCredential (PaymentCredentialByKey),
   PaymentKey,
   ScriptData,
-  SerialiseAddress (deserialiseAddress, serialiseAddress),
   SigningKey,
   StakeAddressReference (NoStakeAddress),
   TxBody,
@@ -29,40 +25,35 @@ import Cardano.Api (
   hashScriptData,
   makeShelleyAddressInEra,
   makeTransactionBody,
-  readFileTextEnvelope,
   txOutValueToValue,
   valueToLovelace,
  )
 import Cardano.Api qualified (Value)
 import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits))
-import Control.Concurrent (newChan, readChan, writeChan , Chan)
-import Control.Concurrent.Async (AsyncCancelled (AsyncCancelled), withAsync, async)
-import Control.Exception (SomeException, displayException, fromException, try)
-import Control.Monad (when)
+import Control.Concurrent (newChan, readChan, writeChan)
+import Control.Concurrent.Async (withAsync)
+import Control.Exception (try)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader.Class (MonadReader, ask)
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
-import Data.Aeson (FromJSON, Result (Success), ToJSON, Value (String), eitherDecode, eitherDecodeFileStrict', encode, fromJSON, (.:))
+import Data.Aeson (ToJSON, eitherDecode, encode, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.Bifunctor (first)
 import Data.ByteString.Lazy (ByteString)
 import Data.Kind (Type)
 import Data.List (sortOn)
 import Data.Map (Map)
-import Data.Map qualified as Map (filter, lookupMin, mapMaybe, singleton, toList)
+import Data.Map qualified as Map (filter, lookupMin, mapMaybe, toList)
 import Data.Maybe (fromMaybe, listToMaybe)
-import Data.String (fromString)
-import Data.Text.Lazy (Text, fromStrict)
+import Data.Text.Lazy (Text)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.IO qualified as Text (putStrLn)
-import Ledger qualified (Address (Address), PubKeyHash (PubKeyHash), toCardanoAPIData)
+import Ledger qualified (Address (Address), PubKeyHash, toCardanoAPIData)
 import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash, toCardanoAddress)
-import Network.WebSockets (ConnectionException, receiveData, runClient, sendTextData, Connection)
+import Network.WebSockets (ConnectionException, receiveData, runClient, sendTextData)
 import Plutus.V1.Ledger.Api (Credential (PubKeyCredential))
 import PlutusTx (ToData (toBuiltinData))
 import PlutusTx.Prelude (BuiltinByteString)
-import System.Environment (getArgs)
-import System.IO.Error (isEOFError)
 
 import HydraRPS.Node.Command qualified as NodeCommand
 import HydraRPS.OnChain (
@@ -78,7 +69,6 @@ import HydraRPS.Tx (
   TxDatum (TxDatum),
   TxRedeemer (TxRedeemer),
   baseBodyContent,
-  parseTxIn,
   signTx,
   txInForSpending,
   txInForValidator,
@@ -89,57 +79,6 @@ import HydraRPS.Tx (
 import HydraRPS.UserInput qualified as UserInput
 
 import Prelude
-
-type EnqueueCommand = UserCommand -> IO ()
-
-withApiClient :: HeadState -> String -> Int -> (EnqueueCommand -> IO ()) -> IO ()
-withApiClient headState host port action = do
-  runClient host port "/" $ \ws -> do
-    events <- newChan
-    let nextServerEvent :: IO ByteString
-        nextServerEvent = receiveData ws
-
-        enqueueUserCommand :: UserCommand -> IO ()
-        enqueueUserCommand = writeChan events . UserEvent
-
-        enqueueApiEvent :: Maybe ServerOutput -> IO ()
-        enqueueApiEvent = writeChan events . ApiEvent
-
-        submitCommand :: (MonadIO m, ToJSON a) => a -> m ()
-        submitCommand input = do
-          let json = encode input
-          liftIO $ Text.putStrLn $ "client input:\n" <> decodeUtf8 json <> "\n"
-          liftIO $ sendTextData ws json
-
-        nextEvent :: IO AppEvent
-        nextEvent = readChan events
-
-    withAsync (apiReader nextServerEvent enqueueApiEvent) $ \_ -> do
-      putStrLn "api-t up"
-      withAsync (runInHead headState (eventProcessor submitCommand nextEvent)) $ \_ -> do
-        putStrLn "run in head up"
-        action enqueueUserCommand
-
-clientFromConnection :: HeadState -> Chan AppEvent -> Connection -> IO ()
-clientFromConnection headState events ws = do
-  let nextServerEvent :: IO ByteString
-      nextServerEvent = receiveData ws
-
-      submitCommand :: (MonadIO m, ToJSON a) => a -> m ()
-      submitCommand input = do
-        let json = encode input
-        liftIO $ Text.putStrLn $ "client input:\n" <> decodeUtf8 json <> "\n"
-        liftIO $ sendTextData ws json
-
-  let enqueueApiEvent :: Maybe ServerOutput -> IO ()
-      enqueueApiEvent = writeChan events . ApiEvent
-
-      nextEvent :: IO AppEvent
-      nextEvent = readChan events
-
-  withAsync (apiReader nextServerEvent enqueueApiEvent) $ \_ ->
-    runInHead headState (eventProcessor submitCommand nextEvent)
-
 
 data HeadState = HeadState
   { hsUserCredentials :: UserCredentials
@@ -184,6 +123,34 @@ mkUserCredentials networkId skey = UserCredentials skey pkh addr
     pkh = fromCardanoPaymentKeyHash vkeyHash
     addr = makeShelleyAddressInEra networkId (PaymentCredentialByKey vkeyHash) NoStakeAddress
 
+type EnqueueCommand = UserCommand -> IO ()
+
+withApiClient :: HeadState -> String -> Int -> (EnqueueCommand -> IO ()) -> IO ()
+withApiClient headState host port action = do
+  runClient host port "/" $ \ws -> do
+    events <- newChan
+    let nextServerEvent :: IO ByteString
+        nextServerEvent = receiveData ws
+
+        enqueueUserCommand :: UserCommand -> IO ()
+        enqueueUserCommand = writeChan events . UserEvent
+
+        enqueueApiEvent :: Maybe ServerOutput -> IO ()
+        enqueueApiEvent = writeChan events . ApiEvent
+
+        submitCommand :: (MonadIO m, ToJSON a) => a -> m ()
+        submitCommand input = do
+          let json = encode input
+          liftIO $ Text.putStrLn $ "client input:\n" <> decodeUtf8 json <> "\n"
+          liftIO $ sendTextData ws json
+
+        nextEvent :: IO AppEvent
+        nextEvent = readChan events
+
+    withAsync (apiReader nextServerEvent enqueueApiEvent) $ \_ -> do
+      withAsync (runInHead headState (eventProcessor submitCommand nextEvent)) $ \_ -> do
+        action enqueueUserCommand
+
 apiReader :: IO ByteString -> (Maybe ServerOutput -> IO ()) -> IO ()
 apiReader nextServerEvent enqueue = go
   where
@@ -212,12 +179,6 @@ decodeServerOutput bytes = do
         snapshot <- o .: "snapshot"
         SnapshotConfirmed <$> snapshot .: "utxo"
       _ -> pure (Other tag)
-
-unexpectedInputException :: SomeException -> Bool
-unexpectedInputException ex
-  | Just io <- fromException ex, isEOFError io = False
-  | Just AsyncCancelled <- fromException ex = False
-  | otherwise = True
 
 eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> IO AppEvent -> m ()
 eventProcessor submit nextEvent = openTheHead
