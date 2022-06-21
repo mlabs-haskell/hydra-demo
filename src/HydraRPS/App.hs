@@ -39,6 +39,7 @@ import Data.Aeson (ToJSON, eitherDecode, encode, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.Bifunctor (first)
 import Data.ByteString.Lazy (ByteString)
+import Data.Function (fix)
 import Data.Kind (Type)
 import Data.List (sortOn)
 import Data.Map qualified as Map (lookupMin, toList)
@@ -147,8 +148,8 @@ withApiClient headState host port action = do
           liftIO $ Text.putStrLn $ "client input:\n" <> decodeUtf8 json <> "\n"
           liftIO $ sendTextData ws json
 
-        nextEvent :: IO AppEvent
-        nextEvent = readChan events
+        nextEvent :: MonadIO m => m AppEvent
+        nextEvent = liftIO $ readChan events
 
     withAsync (apiReader nextServerEvent enqueueApiEvent) $ \_ -> do
       withAsync (runInHead headState (eventProcessor submitCommand nextEvent)) $ \eventLoopAsync -> do
@@ -188,12 +189,12 @@ decodeServerOutput bytes = do
       "HeadIsFinalized" -> HeadIsFinalized <$> o .: "utxo"
       _ -> pure (Other tag)
 
-eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> IO AppEvent -> m ()
+eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> m AppEvent -> m ()
 eventProcessor submit nextEvent = openTheHead
   where
     openTheHead :: m ()
-    openTheHead = do
-      event <- liftIO nextEvent
+    openTheHead = fix $ \loop -> do
+      event <- nextEvent
       case event of
         ApiEvent apiEvent ->
           case apiEvent of
@@ -204,33 +205,33 @@ eventProcessor submit nextEvent = openTheHead
                   playTheGame utxo
                 SnapshotConfirmed utxo -> do
                   liftIO $ putStrLn $ "unexpected snapshot confirmation (head is not opened yet)\n" <> show utxo <> "\n"
-                  openTheHead
+                  loop
                 HeadIsClosed -> do
                   liftIO $ putStrLn "unexpected head closure (head is not opened yet)\n"
-                  openTheHead
+                  loop
                 ReadyToFanout -> do
                   liftIO $ putStrLn "unexpected ready to fanout (head is not opened yet)\n"
-                  openTheHead
+                  loop
                 HeadIsFinalized utxo -> do
                   liftIO $ putStrLn $ "unexpected head finalization (head is not opened yet)\n" <> show utxo <> "\n"
-                  openTheHead
+                  loop
                 Other tag -> do
                   liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
-                  openTheHead
+                  loop
             Nothing -> return ()
         UserCommand command ->
           case command of
             Exit -> return ()
-            InitHead period -> submit (NodeCommand.Init period) >> openTheHead
-            AbortHead -> submit NodeCommand.Abort >> openTheHead
-            CommitToHead utxoToCommit -> submit (NodeCommand.Commit utxoToCommit) >> openTheHead
+            InitHead period -> submit (NodeCommand.Init period) >> loop
+            AbortHead -> submit NodeCommand.Abort >> loop
+            CommitToHead utxoToCommit -> submit (NodeCommand.Commit utxoToCommit) >> loop
             _ -> do
               liftIO $ putStrLn "head is not opened yet"
-              openTheHead
+              loop
 
     playTheGame :: UTxO AlonzoEra -> m ()
-    playTheGame utxo = do
-      event <- liftIO nextEvent
+    playTheGame utxo = fix $ \loop -> do
+      event <- nextEvent
       case event of
         ApiEvent apiEvent ->
           case apiEvent of
@@ -238,10 +239,10 @@ eventProcessor submit nextEvent = openTheHead
               case serverOutput of
                 Other tag -> do
                   liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
-                  playTheGame utxo
+                  loop
                 HeadIsOpen unexpectedUtxo -> do
                   liftIO $ putStrLn $ "unexpected head opening (head is already opened)\n" <> show unexpectedUtxo <> "\n"
-                  playTheGame utxo
+                  loop
                 SnapshotConfirmed updatedUtxo -> do
                   liftIO $ putStrLn $ "snapshot confirmed\n" <> show updatedUtxo <> "\n"
                   playTheGame updatedUtxo
@@ -250,18 +251,18 @@ eventProcessor submit nextEvent = openTheHead
                   waitForFanout
                 ReadyToFanout -> do
                   liftIO $ putStrLn "unexpected ready to fanout (head is not closed yet)\n"
-                  playTheGame utxo
+                  loop
                 HeadIsFinalized unexpectedUtxo -> do
                   liftIO $ putStrLn $ "unexpected head finalization (head is not closed yet)\n" <> show unexpectedUtxo <> "\n"
-                  playTheGame utxo
+                  loop
             Nothing -> return ()
         UserCommand command ->
           case command of
             Exit -> return ()
-            CloseHead -> submit NodeCommand.Close >> playTheGame utxo
+            CloseHead -> submit NodeCommand.Close >> loop
             IssueFanout -> do
               liftIO $ putStrLn "head is not closed yet\n"
-              playTheGame utxo
+              loop
             Bet pp -> do
               state <- ask
               let inputAllocation =
@@ -271,14 +272,12 @@ eventProcessor submit nextEvent = openTheHead
                           extractLovelace $
                             utxosAt state.hsUserCredentials.userAddress utxo
               case inputAllocation of
-                Nothing -> do
-                  liftIO $ putStrLn "not enough funds"
-                  playTheGame utxo
+                Nothing -> liftIO $ putStrLn "not enough funds"
                 Just (refs, total) -> do
                   let unsignedTx = either error id $ buildBetTx refs total state pp
                       signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
                   submit (NodeCommand.newTx signedTx)
-                  playTheGame utxo
+              loop
             Claim cp -> do
               state <- ask
               let redeemer =
@@ -298,14 +297,14 @@ eventProcessor submit nextEvent = openTheHead
               case txResult of
                 Left err -> liftIO $ putStrLn $ "claim tx building failed: " <> err
                 Right signedTx -> submit (NodeCommand.newTx signedTx)
-              playTheGame utxo
+              loop
             _ -> do
               liftIO $ putStrLn "head is already opened"
-              playTheGame utxo
+              loop
 
     waitForFanout :: m ()
-    waitForFanout = do
-      event <- liftIO nextEvent
+    waitForFanout = fix $ \loop -> do
+      event <- nextEvent
       case event of
         ApiEvent apiEvent ->
           case apiEvent of
@@ -313,24 +312,24 @@ eventProcessor submit nextEvent = openTheHead
               case serverOutput of
                 Other tag -> do
                   liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
-                  waitForFanout
+                  loop
                 ReadyToFanout -> do
                   liftIO $ putStrLn "ready to fanout\n"
                   waitForFinalization
                 _ -> do
                   liftIO $ putStrLn "unexpected head state\n"
-                  waitForFanout
+                  loop
             Nothing -> return ()
         UserCommand command ->
           case command of
             Exit -> return ()
             _ -> do
               liftIO $ putStrLn "no input is expected in this state\n"
-              waitForFanout
+              loop
 
     waitForFinalization :: m ()
-    waitForFinalization = do
-      event <- liftIO nextEvent
+    waitForFinalization = fix $ \loop -> do
+      event <- nextEvent
       case event of
         ApiEvent apiEvent ->
           case apiEvent of
@@ -338,21 +337,21 @@ eventProcessor submit nextEvent = openTheHead
               case serverOutput of
                 Other tag -> do
                   liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
-                  waitForFinalization
+                  loop
                 HeadIsFinalized utxo -> do
                   liftIO $ putStrLn $ "head is finalized\n" <> show utxo <> "\n"
                   openTheHead
                 _ -> do
                   liftIO $ putStrLn "unexpected head state\n"
-                  waitForFinalization
+                  loop
             Nothing -> return ()
         UserCommand command ->
           case command of
             Exit -> return ()
-            IssueFanout -> submit NodeCommand.Fanout >> waitForFinalization
+            IssueFanout -> submit NodeCommand.Fanout >> loop
             _ -> do
               liftIO $ putStrLn "only fanout input is expected in this state\n"
-              waitForFinalization
+              loop
 
 allocateUtxos :: Lovelace -> [(TxIn, Lovelace)] -> Maybe ([TxIn], Lovelace)
 allocateUtxos _ [] = Nothing
