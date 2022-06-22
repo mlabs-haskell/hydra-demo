@@ -203,9 +203,7 @@ eventProcessor submit nextEvent = openTheHead
             Nothing -> return ()
         UserEvent command ->
           case command of
-            Exit -> do
-              liftIO $ putStrLn "received exit"
-              return ()
+            Exit -> return ()
             InitHead period -> submit (NodeCommand.Init period) >> openTheHead
             AbortHead -> submit NodeCommand.Abort >> openTheHead
             CommitToHead utxoToCommit -> submit (NodeCommand.Commit utxoToCommit) >> openTheHead

@@ -68,22 +68,22 @@ processCLICommand = do
       ["abort"] -> pure $ Just AbortHead
       ["close"] -> pure $ Just CloseHead
       ["fanout"] -> pure $ Just IssueFanout
-      ["init", str] | [(period, "")] <- reads str -> do
-        putStrLn "parsed init"
-        pure $ Just $ InitHead period
+      ["init", str]
+        | [(period, "")] <- reads str ->
+          pure $ Just $ InitHead period
       ["commit", txInStr, addrStr, lovelaceStr]
         | Right txIn <- parseTxIn (fromString txInStr)
           , Just addr <- deserialiseAddress (AsAddressInEra AsAlonzoEra) (fromString addrStr)
-          , Just lovelace <- parseLovelace lovelaceStr -> do
+          , Just lovelace <- parseLovelace lovelaceStr ->
           pure $ Just $ CommitToHead $ UTxO $ Map.singleton txIn (txOutToAddress addr lovelace)
       ["bet", gestureStr, saltStr]
         | Success gesture <- readFromJsonString gestureStr
-          , Success salt <- readFromJsonString saltStr -> do
+          , Success salt <- readFromJsonString saltStr ->
           pure $ Just $ Bet $ UserInput.PlayParams gesture salt
       ["claim", mySaltStr, theirPkhStr, theirSaltStr]
         | Success mySalt <- readFromJsonString mySaltStr
           , Success theirPkh <- readFromJsonString theirPkhStr
-          , Success theirSalt <- readFromJsonString theirSaltStr -> do
+          , Success theirSalt <- readFromJsonString theirSaltStr ->
           pure $ Just $ Claim $ UserInput.ClaimParams mySalt (Ledger.PubKeyHash theirPkh) theirSalt
       cmd -> do
         putStrLn $ "input: unknown command " <> show cmd
