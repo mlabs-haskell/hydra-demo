@@ -44,6 +44,7 @@ import Data.Kind (Type)
 import Data.List (sortOn)
 import Data.Map qualified as Map (lookupMin, toList)
 import Data.Maybe (fromMaybe, listToMaybe)
+import Data.String (fromString)
 import Data.Text.Lazy (Text)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.IO qualified as Text (putStrLn)
@@ -189,170 +190,149 @@ decodeServerOutput bytes = do
       "HeadIsFinalized" -> HeadIsFinalized <$> o .: "utxo"
       _ -> pure (Other tag)
 
+data StateTransitions (k :: Type) = StateTransitions
+  { apiOpen :: Maybe (UTxO AlonzoEra -> k -> k)
+  , apiSnapshot :: Maybe (UTxO AlonzoEra -> k -> k)
+  , apiClose :: Maybe (k -> k)
+  , apiFanout :: Maybe (k -> k)
+  , apiFinalized :: Maybe (UTxO AlonzoEra -> k -> k)
+  , apiConnectionClosed :: Maybe (k -> k)
+  , cmdExit :: Maybe (k -> k)
+  , cmdInit :: Maybe (Int -> k -> k)
+  , cmdCommit :: Maybe (UTxO AlonzoEra -> k -> k)
+  , cmdAbort :: Maybe (k -> k)
+  , cmdClose :: Maybe (k -> k)
+  , cmdFanout :: Maybe (k -> k)
+  , cmdBet :: Maybe (UserInput.PlayParams -> k -> k)
+  , cmdClaim :: Maybe (UserInput.ClaimParams -> k -> k)
+  }
+
+emptyState :: forall (m :: Type -> Type) . (Applicative m) => StateTransitions (m ())
+emptyState = StateTransitions
+  { apiOpen = Nothing
+  , apiSnapshot = Nothing
+  , apiClose = Nothing
+  , apiFanout = Nothing
+  , apiFinalized = Nothing
+  , apiConnectionClosed = Just $ const $ pure ()
+  , cmdExit = Just $ const $ pure ()
+  , cmdInit = Nothing
+  , cmdCommit = Nothing
+  , cmdAbort = Nothing
+  , cmdClose = Nothing
+  , cmdFanout = Nothing
+  , cmdBet = Nothing
+  , cmdClaim = Nothing
+  }
+
 eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> m AppEvent -> m ()
 eventProcessor submit nextEvent = openTheHead
   where
-    defineHandler :: (AppEvent -> m a -> m a) -> m a
-    defineHandler f = fix $ \loop -> do
+    defineHandler :: forall (a :: Type) . String -> StateTransitions (m a) -> m a
+    defineHandler stateName st = fix $ \loop -> do
+      let makeTransition :: forall (b :: Type) . String -> (StateTransitions (m a) -> Maybe b) -> (b -> m a -> m a) -> m a
+          makeTransition title handler apply = do
+            case handler st of
+              Nothing -> do
+                liftIO $ putStrLn $ stateName <> ": unexpected " <> title <> "\n"
+                loop
+              Just f -> apply f loop
       event <- nextEvent
-      f event loop
+      case event of
+        ApiEvent apiEvent ->
+          case apiEvent of
+            Just serverOutput ->
+              case serverOutput of
+                Other tag -> do
+                  liftIO $ Text.putStrLn $ fromString stateName <> ": " <> tag <> "\n"
+                  loop
+                HeadIsOpen utxo -> makeTransition "head opening" apiOpen ($ utxo)
+                SnapshotConfirmed utxo -> makeTransition "snapshot confirmation" apiSnapshot ($ utxo)
+                HeadIsClosed -> makeTransition "head closure" apiClose id
+                ReadyToFanout -> makeTransition "fanout" apiFanout id
+                HeadIsFinalized utxo -> makeTransition "finalization" apiFinalized ($ utxo)
+            Nothing -> makeTransition "API connection closure" apiConnectionClosed id
+        UserCommand command ->
+          case command of
+            InitHead contestationPeriod -> makeTransition "init command" cmdInit ($ contestationPeriod)
+            CommitToHead utxo -> makeTransition "commit command" cmdCommit ($ utxo)
+            Exit -> makeTransition "exit command" cmdExit id
+            AbortHead -> makeTransition "abort command" cmdAbort id
+            CloseHead -> makeTransition "close command" cmdClose id
+            IssueFanout -> makeTransition "fanout command" cmdFanout id
+            Bet betParams -> makeTransition "bet command" cmdBet ($ betParams)
+            Claim claimParams -> makeTransition "claim command" cmdClaim ($ claimParams)
 
     openTheHead :: m ()
-    openTheHead = defineHandler $ \event loop ->
-      case event of
-        ApiEvent apiEvent ->
-          case apiEvent of
-            Just serverOutput -> do
-              case serverOutput of
-                HeadIsOpen utxo -> do
-                  liftIO $ putStrLn $ "head is opened\n" <> show utxo <> "\n"
-                  playTheGame utxo
-                SnapshotConfirmed utxo -> do
-                  liftIO $ putStrLn $ "unexpected snapshot confirmation (head is not opened yet)\n" <> show utxo <> "\n"
-                  loop
-                HeadIsClosed -> do
-                  liftIO $ putStrLn "unexpected head closure (head is not opened yet)\n"
-                  loop
-                ReadyToFanout -> do
-                  liftIO $ putStrLn "unexpected ready to fanout (head is not opened yet)\n"
-                  loop
-                HeadIsFinalized utxo -> do
-                  liftIO $ putStrLn $ "unexpected head finalization (head is not opened yet)\n" <> show utxo <> "\n"
-                  loop
-                Other tag -> do
-                  liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
-                  loop
-            Nothing -> return ()
-        UserCommand command ->
-          case command of
-            Exit -> return ()
-            InitHead period -> submit (NodeCommand.Init period) >> loop
-            AbortHead -> submit NodeCommand.Abort >> loop
-            CommitToHead utxoToCommit -> submit (NodeCommand.Commit utxoToCommit) >> loop
-            _ -> do
-              liftIO $ putStrLn "head is not opened yet"
-              loop
+    openTheHead = defineHandler "openTheHead" emptyState
+      { apiOpen = Just $ \utxo _ -> do
+          liftIO $ putStrLn $ "head is opened\n" <> show utxo <> "\n"
+          playTheGame utxo
+      , cmdInit = Just $ \period loop -> submit (NodeCommand.Init period) >> loop
+      , cmdAbort = Just $ \loop -> submit NodeCommand.Abort >> loop
+      , cmdCommit = Just $ \utxoToCommit loop -> submit (NodeCommand.Commit utxoToCommit) >> loop
+      }
 
     playTheGame :: UTxO AlonzoEra -> m ()
-    playTheGame utxo = defineHandler $ \event loop ->
-      case event of
-        ApiEvent apiEvent ->
-          case apiEvent of
-            Just serverOutput -> do
-              case serverOutput of
-                Other tag -> do
-                  liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
-                  loop
-                HeadIsOpen unexpectedUtxo -> do
-                  liftIO $ putStrLn $ "unexpected head opening (head is already opened)\n" <> show unexpectedUtxo <> "\n"
-                  loop
-                SnapshotConfirmed updatedUtxo -> do
-                  liftIO $ putStrLn $ "snapshot confirmed\n" <> show updatedUtxo <> "\n"
-                  playTheGame updatedUtxo
-                HeadIsClosed -> do
-                  liftIO $ putStrLn "closing the head\n"
-                  waitForFanout
-                ReadyToFanout -> do
-                  liftIO $ putStrLn "unexpected ready to fanout (head is not closed yet)\n"
-                  loop
-                HeadIsFinalized unexpectedUtxo -> do
-                  liftIO $ putStrLn $ "unexpected head finalization (head is not closed yet)\n" <> show unexpectedUtxo <> "\n"
-                  loop
-            Nothing -> return ()
-        UserCommand command ->
-          case command of
-            Exit -> return ()
-            CloseHead -> submit NodeCommand.Close >> loop
-            IssueFanout -> do
-              liftIO $ putStrLn "head is not closed yet\n"
-              loop
-            Bet pp -> do
-              state <- ask
-              let inputAllocation =
-                    allocateUtxos betConstant $
-                      sortOn snd $
-                        Map.toList $
-                          extractLovelace $
-                            utxosAt state.hsUserCredentials.userAddress utxo
-              case inputAllocation of
-                Nothing -> liftIO $ putStrLn "not enough funds"
-                Just (refs, total) -> do
-                  let unsignedTx = either error id $ buildBetTx refs total state pp
-                      signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
-                  submit (NodeCommand.newTx signedTx)
-              loop
-            Claim cp -> do
-              state <- ask
-              let redeemer =
-                    GameRedeemer
-                      (state.hsUserCredentials.userPubKeyHash, cp.mySalt)
-                      (cp.theirPkh, cp.theirSalt)
-                  txResult = do
-                    collateralTxIn <-
-                      maybe (Left "could not find collateral") (Right . fst) $
-                        Map.lookupMin $
-                          unUTxO $
-                            utxosAt state.hsUserCredentials.userAddress utxo
-                    scriptAddress <- first (("toCardanoAddress: " <>) . show) $ toCardanoAddress state.hsNetworkId rpsValidatorAddress
-                    let betUtxos = utxosAt scriptAddress utxo
-                    unsignedTx <- buildClaimTx collateralTxIn state (filterUtxos redeemer betUtxos) redeemer
-                    pure $ signTx state.hsUserCredentials.userSkey unsignedTx
-              case txResult of
-                Left err -> liftIO $ putStrLn $ "claim tx building failed: " <> err
-                Right signedTx -> submit (NodeCommand.newTx signedTx)
-              loop
-            _ -> do
-              liftIO $ putStrLn "head is already opened"
-              loop
+    playTheGame utxo = defineHandler "playTheGame" emptyState
+      { apiSnapshot = Just $ \updatedUtxo _ -> do
+          liftIO $ putStrLn $ "snapshot confirmed\n" <> show updatedUtxo <> "\n"
+          playTheGame updatedUtxo
+      , apiClose = Just $ \_ -> do
+          liftIO $ putStrLn "closing the head\n"
+          waitForFanout
+      , cmdClose = Just $ \loop -> submit NodeCommand.Close >> loop
+      , cmdBet = Just $ \pp loop -> do
+          state <- ask
+          let inputAllocation =
+                allocateUtxos betConstant $
+                  sortOn snd $
+                    Map.toList $
+                      extractLovelace $
+                        utxosAt state.hsUserCredentials.userAddress utxo
+          case inputAllocation of
+            Nothing -> liftIO $ putStrLn "not enough funds"
+            Just (refs, total) -> do
+              let unsignedTx = either error id $ buildBetTx refs total state pp
+                  signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
+              submit (NodeCommand.newTx signedTx)
+          loop
+      , cmdClaim = Just $ \cp loop -> do
+          state <- ask
+          let redeemer =
+                GameRedeemer
+                  (state.hsUserCredentials.userPubKeyHash, cp.mySalt)
+                  (cp.theirPkh, cp.theirSalt)
+              txResult = do
+                collateralTxIn <-
+                  maybe (Left "could not find collateral") (Right . fst) $
+                    Map.lookupMin $
+                      unUTxO $
+                        utxosAt state.hsUserCredentials.userAddress utxo
+                scriptAddress <- first (("toCardanoAddress: " <>) . show) $ toCardanoAddress state.hsNetworkId rpsValidatorAddress
+                let betUtxos = utxosAt scriptAddress utxo
+                unsignedTx <- buildClaimTx collateralTxIn state (filterUtxos redeemer betUtxos) redeemer
+                pure $ signTx state.hsUserCredentials.userSkey unsignedTx
+          case txResult of
+            Left err -> liftIO $ putStrLn $ "claim tx building failed: " <> err
+            Right signedTx -> submit (NodeCommand.newTx signedTx)
+          loop
+      }
 
     waitForFanout :: m ()
-    waitForFanout = defineHandler $ \event loop ->
-      case event of
-        ApiEvent apiEvent ->
-          case apiEvent of
-            Just serverOutput -> do
-              case serverOutput of
-                Other tag -> do
-                  liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
-                  loop
-                ReadyToFanout -> do
-                  liftIO $ putStrLn "ready to fanout\n"
-                  waitForFinalization
-                _ -> do
-                  liftIO $ putStrLn "unexpected head state\n"
-                  loop
-            Nothing -> return ()
-        UserCommand command ->
-          case command of
-            Exit -> return ()
-            _ -> do
-              liftIO $ putStrLn "no input is expected in this state\n"
-              loop
+    waitForFanout = defineHandler "waitForFanout" emptyState
+      { apiFanout = Just $ \_ -> do
+          liftIO $ putStrLn "ready to fanout\n"
+          waitForFinalization
+      }
 
     waitForFinalization :: m ()
-    waitForFinalization = defineHandler $ \event loop ->
-      case event of
-        ApiEvent apiEvent ->
-          case apiEvent of
-            Just serverOutput -> do
-              case serverOutput of
-                Other tag -> do
-                  liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
-                  loop
-                HeadIsFinalized utxo -> do
-                  liftIO $ putStrLn $ "head is finalized\n" <> show utxo <> "\n"
-                  openTheHead
-                _ -> do
-                  liftIO $ putStrLn "unexpected head state\n"
-                  loop
-            Nothing -> return ()
-        UserCommand command ->
-          case command of
-            Exit -> return ()
-            IssueFanout -> submit NodeCommand.Fanout >> loop
-            _ -> do
-              liftIO $ putStrLn "only fanout input is expected in this state\n"
-              loop
+    waitForFinalization = defineHandler "waitForFinalization" emptyState
+      { apiFinalized = Just $ \utxo _ -> do
+          liftIO $ putStrLn $ "head is finalized\n" <> show utxo <> "\n"
+          openTheHead
+      , cmdFanout = Just $ \loop -> submit NodeCommand.Fanout >> loop
+      }
 
 allocateUtxos :: Lovelace -> [(TxIn, Lovelace)] -> Maybe ([TxIn], Lovelace)
 allocateUtxos _ [] = Nothing
