@@ -192,9 +192,13 @@ decodeServerOutput bytes = do
 eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> m AppEvent -> m ()
 eventProcessor submit nextEvent = openTheHead
   where
-    openTheHead :: m ()
-    openTheHead = fix $ \loop -> do
+    defineHandler :: (AppEvent -> m a -> m a) -> m a
+    defineHandler f = fix $ \loop -> do
       event <- nextEvent
+      f event loop
+
+    openTheHead :: m ()
+    openTheHead = defineHandler $ \event loop ->
       case event of
         ApiEvent apiEvent ->
           case apiEvent of
@@ -230,8 +234,7 @@ eventProcessor submit nextEvent = openTheHead
               loop
 
     playTheGame :: UTxO AlonzoEra -> m ()
-    playTheGame utxo = fix $ \loop -> do
-      event <- nextEvent
+    playTheGame utxo = defineHandler $ \event loop ->
       case event of
         ApiEvent apiEvent ->
           case apiEvent of
@@ -303,8 +306,7 @@ eventProcessor submit nextEvent = openTheHead
               loop
 
     waitForFanout :: m ()
-    waitForFanout = fix $ \loop -> do
-      event <- nextEvent
+    waitForFanout = defineHandler $ \event loop ->
       case event of
         ApiEvent apiEvent ->
           case apiEvent of
@@ -328,8 +330,7 @@ eventProcessor submit nextEvent = openTheHead
               loop
 
     waitForFinalization :: m ()
-    waitForFinalization = fix $ \loop -> do
-      event <- nextEvent
+    waitForFinalization = defineHandler $ \event loop ->
       case event of
         ApiEvent apiEvent ->
           case apiEvent of
