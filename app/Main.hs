@@ -52,6 +52,7 @@ commandReader nextUserEvent enqueue = go
       event <- nextUserEvent
       case event of
         Nothing -> go
+        Just Exit -> pure ()
         Just command -> enqueue command >> go
 
 processCLICommand :: IO (Maybe UserCommand)

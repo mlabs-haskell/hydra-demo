@@ -31,7 +31,7 @@ import Cardano.Api (
 import Cardano.Api qualified (Value)
 import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits))
 import Control.Concurrent (newChan, readChan, writeChan)
-import Control.Concurrent.Async (withAsync)
+import Control.Concurrent.Async (wait, withAsync)
 import Control.Exception (try)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader.Class (MonadReader, ask)
@@ -148,8 +148,10 @@ withApiClient headState host port action = do
         nextEvent = readChan events
 
     withAsync (apiReader nextServerEvent enqueueApiEvent) $ \_ -> do
-      withAsync (runInHead headState (eventProcessor submitCommand nextEvent)) $ \_ -> do
+      withAsync (runInHead headState (eventProcessor submitCommand nextEvent)) $ \eventLoopAsync -> do
         action enqueueUserCommand
+        enqueueUserCommand Exit
+        wait eventLoopAsync
 
 apiReader :: IO ByteString -> (Maybe ServerOutput -> IO ()) -> IO ()
 apiReader nextServerEvent enqueue = go
