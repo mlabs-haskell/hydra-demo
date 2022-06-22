@@ -190,32 +190,32 @@ decodeServerOutput bytes = do
       "HeadIsFinalized" -> HeadIsFinalized <$> o .: "utxo"
       _ -> pure (Other tag)
 
-data StateTransitions (k :: Type) = StateTransitions
-  { apiOpen :: Maybe (UTxO AlonzoEra -> k -> k)
-  , apiSnapshot :: Maybe (UTxO AlonzoEra -> k -> k)
-  , apiClose :: Maybe (k -> k)
-  , apiFanout :: Maybe (k -> k)
-  , apiFinalized :: Maybe (UTxO AlonzoEra -> k -> k)
-  , apiConnectionClosed :: Maybe (k -> k)
-  , cmdExit :: Maybe (k -> k)
-  , cmdInit :: Maybe (Int -> k -> k)
-  , cmdCommit :: Maybe (UTxO AlonzoEra -> k -> k)
-  , cmdAbort :: Maybe (k -> k)
-  , cmdClose :: Maybe (k -> k)
-  , cmdFanout :: Maybe (k -> k)
-  , cmdBet :: Maybe (UserInput.PlayParams -> k -> k)
-  , cmdClaim :: Maybe (UserInput.ClaimParams -> k -> k)
+data StateTransitions (m :: Type -> Type) (a :: Type) = StateTransitions
+  { apiOpen :: Maybe (UTxO AlonzoEra -> m a)
+  , apiSnapshot :: Maybe (UTxO AlonzoEra -> m a)
+  , apiClose :: Maybe (m a)
+  , apiFanout :: Maybe (m a)
+  , apiFinalized :: Maybe (UTxO AlonzoEra -> m a)
+  , apiConnectionClosed :: Maybe (m a)
+  , cmdExit :: Maybe (m a)
+  , cmdInit :: Maybe (Int -> m ())
+  , cmdCommit :: Maybe (UTxO AlonzoEra -> m ())
+  , cmdAbort :: Maybe (m ())
+  , cmdClose :: Maybe (m ())
+  , cmdFanout :: Maybe (m ())
+  , cmdBet :: Maybe (UserInput.PlayParams -> m ())
+  , cmdClaim :: Maybe (UserInput.ClaimParams -> m ())
   }
 
-emptyState :: forall (m :: Type -> Type) . (Applicative m) => StateTransitions (m ())
+emptyState :: forall (m :: Type -> Type) . (Applicative m) => StateTransitions m ()
 emptyState = StateTransitions
   { apiOpen = Nothing
   , apiSnapshot = Nothing
   , apiClose = Nothing
   , apiFanout = Nothing
   , apiFinalized = Nothing
-  , apiConnectionClosed = Just $ const $ pure ()
-  , cmdExit = Just $ const $ pure ()
+  , apiConnectionClosed = Just $ pure ()
+  , cmdExit = Just $ pure ()
   , cmdInit = Nothing
   , cmdCommit = Nothing
   , cmdAbort = Nothing
@@ -228,15 +228,24 @@ emptyState = StateTransitions
 eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> m AppEvent -> m ()
 eventProcessor submit nextEvent = openTheHead
   where
-    defineHandler :: forall (a :: Type) . String -> StateTransitions (m a) -> m a
+    defineHandler :: forall (a :: Type) . String -> StateTransitions m a -> m a
     defineHandler stateName st = fix $ \loop -> do
-      let makeTransition :: forall (b :: Type) . String -> (StateTransitions (m a) -> Maybe b) -> (b -> m a -> m a) -> m a
-          makeTransition title handler apply = do
+      let makeTransition :: forall (b :: Type) . String -> (StateTransitions m a -> Maybe b) -> (b -> m a) -> m a
+          makeTransition title handler run =
             case handler st of
               Nothing -> do
                 liftIO $ putStrLn $ stateName <> ": unexpected " <> title <> "\n"
                 loop
-              Just f -> apply f loop
+              Just f -> run f
+
+          executeCommand :: forall (b :: Type) . String -> (StateTransitions m a -> Maybe b) -> (b -> m ()) -> m a
+          executeCommand title handler run = do
+            case handler st of
+              Nothing -> do
+                liftIO $ putStrLn $ stateName <> ": unexpected command " <> title <> "\n"
+              Just f -> run f
+            loop
+
       event <- nextEvent
       case event of
         ApiEvent apiEvent ->
@@ -254,35 +263,36 @@ eventProcessor submit nextEvent = openTheHead
             Nothing -> makeTransition "API connection closure" apiConnectionClosed id
         UserCommand command ->
           case command of
-            InitHead contestationPeriod -> makeTransition "init command" cmdInit ($ contestationPeriod)
-            CommitToHead utxo -> makeTransition "commit command" cmdCommit ($ utxo)
+            InitHead contestationPeriod -> executeCommand "init command" cmdInit ($ contestationPeriod)
+            CommitToHead utxo -> executeCommand "commit command" cmdCommit ($ utxo)
+            -- XXX `Exit` is not a command really, it's just a hack to nicely stop the CLI by pressing Ctrl+D
             Exit -> makeTransition "exit command" cmdExit id
-            AbortHead -> makeTransition "abort command" cmdAbort id
-            CloseHead -> makeTransition "close command" cmdClose id
-            IssueFanout -> makeTransition "fanout command" cmdFanout id
-            Bet betParams -> makeTransition "bet command" cmdBet ($ betParams)
-            Claim claimParams -> makeTransition "claim command" cmdClaim ($ claimParams)
+            AbortHead -> executeCommand "abort command" cmdAbort id
+            CloseHead -> executeCommand "close command" cmdClose id
+            IssueFanout -> executeCommand "fanout command" cmdFanout id
+            Bet betParams -> executeCommand "bet command" cmdBet ($ betParams)
+            Claim claimParams -> executeCommand "claim command" cmdClaim ($ claimParams)
 
     openTheHead :: m ()
     openTheHead = defineHandler "openTheHead" emptyState
-      { apiOpen = Just $ \utxo _ -> do
+      { apiOpen = Just $ \utxo -> do
           liftIO $ putStrLn $ "head is opened\n" <> show utxo <> "\n"
           playTheGame utxo
-      , cmdInit = Just $ \period loop -> submit (NodeCommand.Init period) >> loop
-      , cmdAbort = Just $ \loop -> submit NodeCommand.Abort >> loop
-      , cmdCommit = Just $ \utxoToCommit loop -> submit (NodeCommand.Commit utxoToCommit) >> loop
+      , cmdInit = Just $ \period -> submit (NodeCommand.Init period)
+      , cmdAbort = Just $ submit NodeCommand.Abort
+      , cmdCommit = Just $ \utxoToCommit -> submit (NodeCommand.Commit utxoToCommit)
       }
 
     playTheGame :: UTxO AlonzoEra -> m ()
     playTheGame utxo = defineHandler "playTheGame" emptyState
-      { apiSnapshot = Just $ \updatedUtxo _ -> do
+      { apiSnapshot = Just $ \updatedUtxo -> do
           liftIO $ putStrLn $ "snapshot confirmed\n" <> show updatedUtxo <> "\n"
           playTheGame updatedUtxo
-      , apiClose = Just $ \_ -> do
+      , apiClose = Just $ do
           liftIO $ putStrLn "closing the head\n"
           waitForFanout
-      , cmdClose = Just $ \loop -> submit NodeCommand.Close >> loop
-      , cmdBet = Just $ \pp loop -> do
+      , cmdClose = Just $ submit NodeCommand.Close
+      , cmdBet = Just $ \pp -> do
           state <- ask
           let inputAllocation =
                 allocateUtxos betConstant $
@@ -296,8 +306,7 @@ eventProcessor submit nextEvent = openTheHead
               let unsignedTx = either error id $ buildBetTx refs total state pp
                   signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
               submit (NodeCommand.newTx signedTx)
-          loop
-      , cmdClaim = Just $ \cp loop -> do
+      , cmdClaim = Just $ \cp -> do
           state <- ask
           let redeemer =
                 GameRedeemer
@@ -316,22 +325,21 @@ eventProcessor submit nextEvent = openTheHead
           case txResult of
             Left err -> liftIO $ putStrLn $ "claim tx building failed: " <> err
             Right signedTx -> submit (NodeCommand.newTx signedTx)
-          loop
       }
 
     waitForFanout :: m ()
     waitForFanout = defineHandler "waitForFanout" emptyState
-      { apiFanout = Just $ \_ -> do
+      { apiFanout = Just $ do
           liftIO $ putStrLn "ready to fanout\n"
           waitForFinalization
       }
 
     waitForFinalization :: m ()
     waitForFinalization = defineHandler "waitForFinalization" emptyState
-      { apiFinalized = Just $ \utxo _ -> do
+      { apiFinalized = Just $ \utxo -> do
           liftIO $ putStrLn $ "head is finalized\n" <> show utxo <> "\n"
           openTheHead
-      , cmdFanout = Just $ \loop -> submit NodeCommand.Fanout >> loop
+      , cmdFanout = Just $ submit NodeCommand.Fanout
       }
 
 allocateUtxos :: Lovelace -> [(TxIn, Lovelace)] -> Maybe ([TxIn], Lovelace)
