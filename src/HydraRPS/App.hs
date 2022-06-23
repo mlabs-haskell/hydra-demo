@@ -190,7 +190,7 @@ decodeServerOutput bytes = do
       "HeadIsFinalized" -> HeadIsFinalized <$> o .: "utxo"
       _ -> pure (Other tag)
 
-data StateTransitions (m :: Type -> Type) (a :: Type) = StateTransitions
+data StateDescription (m :: Type -> Type) (a :: Type) = StateDescription
   { stateName :: String
   , apiOpen :: Maybe (UTxO AlonzoEra -> m a)
   , apiSnapshot :: Maybe (UTxO AlonzoEra -> m a)
@@ -208,8 +208,8 @@ data StateTransitions (m :: Type -> Type) (a :: Type) = StateTransitions
   , cmdClaim :: Maybe (UserInput.ClaimParams -> m ())
   }
 
-emptyState :: forall (m :: Type -> Type) . (Applicative m) => StateTransitions m ()
-emptyState = StateTransitions
+emptyState :: forall (m :: Type -> Type) . (Applicative m) => StateDescription m ()
+emptyState = StateDescription
   { stateName = error "undefined state name"
   , apiOpen = Nothing
   , apiSnapshot = Nothing
@@ -230,9 +230,9 @@ emptyState = StateTransitions
 eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> m AppEvent -> m ()
 eventProcessor submit nextEvent = openTheHead
   where
-    defineHandler :: forall (a :: Type) . StateTransitions m a -> m a
-    defineHandler st = fix $ \loop -> do
-      let makeTransition :: forall (b :: Type) . String -> (StateTransitions m a -> Maybe b) -> (b -> m a) -> m a
+    advance :: forall (a :: Type) . StateDescription m a -> m a
+    advance st = fix $ \loop -> do
+      let makeTransition :: forall (b :: Type) . String -> (StateDescription m a -> Maybe b) -> (b -> m a) -> m a
           makeTransition title handler run =
             case handler st of
               Nothing -> do
@@ -240,7 +240,7 @@ eventProcessor submit nextEvent = openTheHead
                 loop
               Just f -> run f
 
-          executeCommand :: forall (b :: Type) . String -> (StateTransitions m a -> Maybe b) -> (b -> m ()) -> m a
+          executeCommand :: forall (b :: Type) . String -> (StateDescription m a -> Maybe b) -> (b -> m ()) -> m a
           executeCommand title handler run = do
             case handler st of
               Nothing -> do
@@ -276,7 +276,7 @@ eventProcessor submit nextEvent = openTheHead
             Claim claimParams -> executeCommand "claim command" cmdClaim ($ claimParams)
 
     openTheHead :: m ()
-    openTheHead = defineHandler emptyState
+    openTheHead = advance emptyState
       { stateName = "openTheHead"
       , apiOpen = Just $ \utxo -> do
           liftIO $ putStrLn $ "head is opened\n" <> show utxo <> "\n"
@@ -287,7 +287,7 @@ eventProcessor submit nextEvent = openTheHead
       }
 
     playTheGame :: UTxO AlonzoEra -> m ()
-    playTheGame utxo = defineHandler emptyState
+    playTheGame utxo = advance emptyState
       { stateName = "playTheGame"
       , apiSnapshot = Just $ \updatedUtxo -> do
           liftIO $ putStrLn $ "snapshot confirmed\n" <> show updatedUtxo <> "\n"
@@ -332,7 +332,7 @@ eventProcessor submit nextEvent = openTheHead
       }
 
     waitForFanout :: m ()
-    waitForFanout = defineHandler emptyState
+    waitForFanout = advance emptyState
       { stateName = "waitForFanout"
       , apiFanout = Just $ do
           liftIO $ putStrLn "ready to fanout\n"
@@ -340,7 +340,7 @@ eventProcessor submit nextEvent = openTheHead
       }
 
     waitForFinalization :: m ()
-    waitForFinalization = defineHandler emptyState
+    waitForFinalization = advance emptyState
       { stateName = "waitForFinalization"
       , apiFinalized = Just $ \utxo -> do
           liftIO $ putStrLn $ "head is finalized\n" <> show utxo <> "\n"
