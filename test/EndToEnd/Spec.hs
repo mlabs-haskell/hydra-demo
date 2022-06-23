@@ -6,6 +6,7 @@ module EndToEnd.Spec (spec, headTests) where
 import Hydra.Prelude hiding (threadDelay)
 import Test.Hydra.Prelude
 
+import Cardano.Api (UTxO (unUTxO))
 import Cardano.Api.UTxO qualified as UTxO
 import CardanoClient (waitForUTxO)
 import CardanoCluster (
@@ -55,7 +56,8 @@ import HydraNode (
  )
 import HydraRPS.App (EnqueueCommand, HeadState (..), UserCommand (..), betConstant, mkUserCredentials, withApiClient)
 import HydraRPS.OnChain (GameDatum (..), Gesture (..), encryptGesture, rpsValidatorAddress)
-import HydraRPS.UserInput (PlayParams (..))
+import HydraRPS.Tx (extractLovelace, utxosAt)
+import HydraRPS.UserInput (ClaimParams (..), PlayParams (..))
 import Ledger qualified
 import Ledger.Tx.CardanoAPI (toCardanoAddress)
 import PlutusTx qualified
@@ -86,6 +88,14 @@ spec = around showLogsOnFailure $ do
             config <- newNodeConfig tmpDir
             withBFTNode (contramap FromCardanoNode tracer) config $ \node -> do
               initBetAndClose tracer node
+
+    describe "run a full game round" $
+      it "inits a Head, places bets, claims the winngings, and closes the head" $ \tracer ->
+        failAfter 60 $
+          withTempDir "end-to-end-cardano-node" $ \tmpDir -> do
+            config <- newNodeConfig tmpDir
+            withBFTNode (contramap FromCardanoNode tracer) config $ \node -> do
+              fullGameRound tracer node
 
 withTestApiClients :: Int -> [HeadState] -> ([EnqueueCommand] -> IO ()) -> IO ()
 withTestApiClients firstNodeId states action = do
@@ -342,6 +352,121 @@ initBetAndClose tracer node@(RunningNode _ nodeSocket) = do
         waitFor tracer 3 [aliceNode, bobNode] $
           output "HeadIsFinalized" ["utxo" .= toJSON newUTxO]
 
+fullGameRound :: Tracer IO EndToEndLog -> RunningNode -> IO ()
+fullGameRound tracer node@(RunningNode _ nodeSocket) = do
+  withTempDir "end-to-end-init-bet-and-close" $ \tmpDir -> do
+    aliceKeys@(aliceCardanoVk, aliceCardanoSk) <- generate genKeyPair
+    bobKeys@(bobCardanoVk, bobCardanoSk) <- generate genKeyPair
+
+    let aliceSk, bobSk :: Hydra.SigningKey
+        aliceSk = generateSigningKey "alice"
+        bobSk = generateSigningKey "bob"
+
+        alice, bob :: Party
+        alice = deriveParty aliceSk
+        bob = deriveParty bobSk
+
+        cardanoKeys = [aliceKeys, bobKeys]
+        hydraKeys = [aliceSk, bobSk]
+
+        firstNodeId = 0
+
+    withHydraCluster tracer tmpDir nodeSocket firstNodeId cardanoKeys hydraKeys $ \nodes -> do
+      let [aliceNode, bobNode] = toList nodes
+      waitForNodesConnected tracer [aliceNode, bobNode]
+      putStrLn "\nnodes are up"
+
+      -- Funds to be used as fuel by Hydra protocol transactions
+      -- nodes need to be up to observe fuel tx
+      seedFromFaucet_ defaultNetworkId node aliceCardanoVk 100_000_000 Fuel
+      seedFromFaucet_ defaultNetworkId node bobCardanoVk 100_000_000 Fuel
+
+      let contestationPeriod = 2 :: Int
+      pp <- eitherDecodeStrict' <$> readConfigFile "protocol-parameters.json" :: IO (Either String ProtocolParameters)
+      let protocolParams = either (error . pack) id pp
+          aliceCredentials = mkUserCredentials defaultNetworkId aliceCardanoSk
+          bobCredentials = mkUserCredentials defaultNetworkId bobCardanoSk
+          aliceState = HeadState aliceCredentials defaultNetworkId protocolParams
+          bobState = HeadState bobCredentials defaultNetworkId protocolParams
+      putStrLn "starting client"
+      withTestApiClients firstNodeId [aliceState, bobState] $ \[enqueueAliceCommand, enqueueBobCommand] -> do
+        enqueueAliceCommand $ InitHead contestationPeriod
+
+        waitFor tracer 10 [aliceNode, bobNode] $
+          output "ReadyToCommit" ["parties" .= Set.fromList [alice, bob]]
+
+        -- Get some UTXOs to commit to a head
+        committedUTxOByAlice <- seedFromFaucet defaultNetworkId node aliceCardanoVk aliceCommittedToHead Normal
+        committedUTxOByBob <- seedFromFaucet defaultNetworkId node bobCardanoVk bobCommittedToHead Normal
+        enqueueAliceCommand $ CommitToHead (UTxO.toApi committedUTxOByAlice)
+        enqueueBobCommand $ CommitToHead (UTxO.toApi committedUTxOByBob)
+
+        waitFor tracer 10 [aliceNode, bobNode] $ output "HeadIsOpen" ["utxo" .= (committedUTxOByAlice <> committedUTxOByBob)]
+
+        let aliceGesture = Rock
+            aliceSalt = "1234"
+
+            bobGesture = Paper
+            bobSalt = "8765"
+
+        enqueueAliceCommand $ Bet $ PlayParams aliceGesture aliceSalt
+        enqueueBobCommand $ Bet $ PlayParams bobGesture bobSalt
+
+        -- two bets were made, expect two UTxO's locked to our script
+        waitMatch 10 aliceNode $ \v -> do
+          count <- snapshotUTxOCount (inHeadScriptAddress rpsValidatorAddress) v
+          guard $ count == 2
+
+        enqueueBobCommand $
+          Claim
+            ClaimParams
+              { mySalt = bobSalt
+              , theirPkh = aliceCredentials.userPubKeyHash
+              , theirSalt = aliceSalt
+              }
+
+        -- "claim" tx should have spent both bet UTxO's,
+        -- so there should be no more UTxO's locked to our script
+        waitMatch 10 aliceNode $ \v -> do
+          count <- snapshotUTxOCount (inHeadScriptAddress rpsValidatorAddress) v
+          guard $ count == 0
+
+        enqueueAliceCommand CloseHead
+
+        waitFor tracer (expectedContestationPeriod contestationPeriod) [aliceNode, bobNode] $
+          output "ReadyToFanout" []
+
+        enqueueAliceCommand IssueFanout
+
+        -- Bob should have won ("paper" beats "scissors")
+        waitMatch 10 aliceNode $ \v -> do
+          tag <- v ^? key "tag"
+          guard $ tag == "HeadIsFinalized"
+          u <- v ^? key "utxo"
+          utxo <- fromResult (fromJSON u)
+          let fundsAt address = mconcat $ Map.elems $ extractLovelace $ utxosAt address utxo
+              aliceFunds = fundsAt aliceCredentials.userAddress
+              bobFunds = fundsAt bobCredentials.userAddress
+          guard $
+            aliceFunds == aliceCommittedToHead - betConstant
+              && bobFunds == bobCommittedToHead + betConstant
+
+snapshotUTxOCount :: AddressInEra -> Value -> Maybe Int
+snapshotUTxOCount address v = do
+  tag <- v ^? key "tag"
+  guard $ tag == "SnapshotConfirmed"
+  snapshot <- v ^? key "snapshot"
+  u <- snapshot ^? key "utxo"
+  utxo <- fromResult (fromJSON u)
+  let filtered = utxosAt address utxo
+  pure $ Map.size (unUTxO filtered)
+
+fromResult :: MonadFail m => Result a -> m a
+fromResult r =
+  case r of
+    Error e -> fail e
+    Success s -> pure s
+
 --
 -- Fixtures
 --
@@ -350,7 +475,7 @@ aliceCommittedToHead :: Num a => a
 aliceCommittedToHead = 20_000_000
 
 bobCommittedToHead :: Num a => a
-bobCommittedToHead = 5_000_000
+bobCommittedToHead = 30_000_000
 
 paymentFromAliceToBob :: Num a => a
 paymentFromAliceToBob = 1_000_000
