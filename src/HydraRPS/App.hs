@@ -39,7 +39,6 @@ import Data.Aeson (ToJSON, eitherDecode, encode, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.Bifunctor (first)
 import Data.ByteString.Lazy (ByteString)
-import Data.Function (fix)
 import Data.Kind (Type)
 import Data.List (sortOn)
 import Data.Map qualified as Map (lookupMin, toList)
@@ -190,15 +189,13 @@ decodeServerOutput bytes = do
       "HeadIsFinalized" -> HeadIsFinalized <$> o .: "utxo"
       _ -> pure (Other tag)
 
-data StateDescription (m :: Type -> Type) (a :: Type) = StateDescription
+data StateDescription (m :: Type -> Type) = StateDescription
   { stateName :: String
-  , apiOpen :: Maybe (UTxO AlonzoEra -> m a)
-  , apiSnapshot :: Maybe (UTxO AlonzoEra -> m a)
-  , apiClose :: Maybe (m a)
-  , apiFanout :: Maybe (m a)
-  , apiFinalized :: Maybe (UTxO AlonzoEra -> m a)
-  , apiConnectionClosed :: Maybe (m a)
-  , cmdExit :: Maybe (m a)
+  , apiOpen :: Maybe (UTxO AlonzoEra -> m (StateDescription m))
+  , apiSnapshot :: Maybe (UTxO AlonzoEra -> m (StateDescription m))
+  , apiClose :: Maybe (m (StateDescription m))
+  , apiFanout :: Maybe (m (StateDescription m))
+  , apiFinalized :: Maybe (UTxO AlonzoEra -> m (StateDescription m))
   , cmdInit :: Maybe (Int -> m ())
   , cmdCommit :: Maybe (UTxO AlonzoEra -> m ())
   , cmdAbort :: Maybe (m ())
@@ -208,7 +205,7 @@ data StateDescription (m :: Type -> Type) (a :: Type) = StateDescription
   , cmdClaim :: Maybe (UserInput.ClaimParams -> m ())
   }
 
-emptyState :: forall (m :: Type -> Type) . (Applicative m) => StateDescription m ()
+emptyState :: forall (m :: Type -> Type) . StateDescription m
 emptyState = StateDescription
   { stateName = error "undefined state name"
   , apiOpen = Nothing
@@ -216,8 +213,6 @@ emptyState = StateDescription
   , apiClose = Nothing
   , apiFanout = Nothing
   , apiFinalized = Nothing
-  , apiConnectionClosed = Just $ pure ()
-  , cmdExit = Just $ pure ()
   , cmdInit = Nothing
   , cmdCommit = Nothing
   , cmdAbort = Nothing
@@ -228,25 +223,27 @@ emptyState = StateDescription
   }
 
 eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> m AppEvent -> m ()
-eventProcessor submit nextEvent = openTheHead
+eventProcessor submit nextEvent = advance openTheHead
   where
-    advance :: forall (a :: Type) . StateDescription m a -> m a
-    advance st = fix $ \loop -> do
-      let makeTransition :: forall (b :: Type) . String -> (StateDescription m a -> Maybe b) -> (b -> m a) -> m a
-          makeTransition title handler run =
-            case handler st of
-              Nothing -> do
-                liftIO $ putStrLn $ stateName st <> ": unexpected " <> title <> "\n"
-                loop
-              Just f -> run f
+    advance :: StateDescription m -> m ()
+    advance state = do
+      let makeTransition :: forall (b :: Type) . String -> (StateDescription m -> Maybe b) -> (b -> m (StateDescription m)) -> m ()
+          makeTransition title handler run = do
+            state' <-
+              case handler state of
+                Nothing -> do
+                  liftIO $ putStrLn $ stateName state <> ": unexpected " <> title <> "\n"
+                  pure state
+                Just f -> run f
+            advance state'
 
-          executeCommand :: forall (b :: Type) . String -> (StateDescription m a -> Maybe b) -> (b -> m ()) -> m a
+          executeCommand :: forall (b :: Type) . String -> (StateDescription m -> Maybe b) -> (b -> m ()) -> m ()
           executeCommand title handler run = do
-            case handler st of
+            case handler state of
               Nothing -> do
-                liftIO $ putStrLn $ stateName st <> ": unexpected command " <> title <> "\n"
+                liftIO $ putStrLn $ stateName state <> ": unexpected command " <> title <> "\n"
               Just f -> run f
-            loop
+            advance state
 
       event <- nextEvent
       case event of
@@ -255,46 +252,45 @@ eventProcessor submit nextEvent = openTheHead
             Just serverOutput ->
               case serverOutput of
                 Other tag -> do
-                  liftIO $ Text.putStrLn $ fromString (stateName st) <> ": " <> tag <> "\n"
-                  loop
+                  liftIO $ Text.putStrLn $ fromString (stateName state) <> ": " <> tag <> "\n"
+                  advance state
                 HeadIsOpen utxo -> makeTransition "head opening" apiOpen ($ utxo)
                 SnapshotConfirmed utxo -> makeTransition "snapshot confirmation" apiSnapshot ($ utxo)
                 HeadIsClosed -> makeTransition "head closure" apiClose id
                 ReadyToFanout -> makeTransition "fanout" apiFanout id
                 HeadIsFinalized utxo -> makeTransition "finalization" apiFinalized ($ utxo)
-            Nothing -> makeTransition "API connection closure" apiConnectionClosed id
+            Nothing -> return ()
         UserCommand command ->
           case command of
             InitHead contestationPeriod -> executeCommand "init command" cmdInit ($ contestationPeriod)
             CommitToHead utxo -> executeCommand "commit command" cmdCommit ($ utxo)
-            -- XXX `Exit` is not a command really, it's just a hack to nicely stop the CLI by pressing Ctrl+D
-            Exit -> makeTransition "exit command" cmdExit id
+            Exit -> return ()
             AbortHead -> executeCommand "abort command" cmdAbort id
             CloseHead -> executeCommand "close command" cmdClose id
             IssueFanout -> executeCommand "fanout command" cmdFanout id
             Bet betParams -> executeCommand "bet command" cmdBet ($ betParams)
             Claim claimParams -> executeCommand "claim command" cmdClaim ($ claimParams)
 
-    openTheHead :: m ()
-    openTheHead = advance emptyState
+    openTheHead :: StateDescription m
+    openTheHead = emptyState
       { stateName = "openTheHead"
       , apiOpen = Just $ \utxo -> do
           liftIO $ putStrLn $ "head is opened\n" <> show utxo <> "\n"
-          playTheGame utxo
+          return $ playTheGame utxo
       , cmdInit = Just $ \period -> submit (NodeCommand.Init period)
       , cmdAbort = Just $ submit NodeCommand.Abort
       , cmdCommit = Just $ \utxoToCommit -> submit (NodeCommand.Commit utxoToCommit)
       }
 
-    playTheGame :: UTxO AlonzoEra -> m ()
-    playTheGame utxo = advance emptyState
+    playTheGame :: UTxO AlonzoEra -> StateDescription m
+    playTheGame utxo = emptyState
       { stateName = "playTheGame"
       , apiSnapshot = Just $ \updatedUtxo -> do
           liftIO $ putStrLn $ "snapshot confirmed\n" <> show updatedUtxo <> "\n"
-          playTheGame updatedUtxo
+          return $ playTheGame updatedUtxo
       , apiClose = Just $ do
           liftIO $ putStrLn "closing the head\n"
-          waitForFanout
+          return waitForFanout
       , cmdClose = Just $ submit NodeCommand.Close
       , cmdBet = Just $ \pp -> do
           state <- ask
@@ -331,20 +327,20 @@ eventProcessor submit nextEvent = openTheHead
             Right signedTx -> submit (NodeCommand.newTx signedTx)
       }
 
-    waitForFanout :: m ()
-    waitForFanout = advance emptyState
+    waitForFanout :: StateDescription m
+    waitForFanout = emptyState
       { stateName = "waitForFanout"
       , apiFanout = Just $ do
           liftIO $ putStrLn "ready to fanout\n"
-          waitForFinalization
+          return waitForFinalization
       }
 
-    waitForFinalization :: m ()
-    waitForFinalization = advance emptyState
+    waitForFinalization :: StateDescription m
+    waitForFinalization = emptyState
       { stateName = "waitForFinalization"
       , apiFinalized = Just $ \utxo -> do
           liftIO $ putStrLn $ "head is finalized\n" <> show utxo <> "\n"
-          openTheHead
+          return openTheHead
       , cmdFanout = Just $ submit NodeCommand.Fanout
       }
 
