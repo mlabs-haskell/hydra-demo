@@ -191,7 +191,8 @@ decodeServerOutput bytes = do
       _ -> pure (Other tag)
 
 data StateTransitions (m :: Type -> Type) (a :: Type) = StateTransitions
-  { apiOpen :: Maybe (UTxO AlonzoEra -> m a)
+  { stateName :: String
+  , apiOpen :: Maybe (UTxO AlonzoEra -> m a)
   , apiSnapshot :: Maybe (UTxO AlonzoEra -> m a)
   , apiClose :: Maybe (m a)
   , apiFanout :: Maybe (m a)
@@ -209,7 +210,8 @@ data StateTransitions (m :: Type -> Type) (a :: Type) = StateTransitions
 
 emptyState :: forall (m :: Type -> Type) . (Applicative m) => StateTransitions m ()
 emptyState = StateTransitions
-  { apiOpen = Nothing
+  { stateName = error "undefined state name"
+  , apiOpen = Nothing
   , apiSnapshot = Nothing
   , apiClose = Nothing
   , apiFanout = Nothing
@@ -228,13 +230,13 @@ emptyState = StateTransitions
 eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> m AppEvent -> m ()
 eventProcessor submit nextEvent = openTheHead
   where
-    defineHandler :: forall (a :: Type) . String -> StateTransitions m a -> m a
-    defineHandler stateName st = fix $ \loop -> do
+    defineHandler :: forall (a :: Type) . StateTransitions m a -> m a
+    defineHandler st = fix $ \loop -> do
       let makeTransition :: forall (b :: Type) . String -> (StateTransitions m a -> Maybe b) -> (b -> m a) -> m a
           makeTransition title handler run =
             case handler st of
               Nothing -> do
-                liftIO $ putStrLn $ stateName <> ": unexpected " <> title <> "\n"
+                liftIO $ putStrLn $ stateName st <> ": unexpected " <> title <> "\n"
                 loop
               Just f -> run f
 
@@ -242,7 +244,7 @@ eventProcessor submit nextEvent = openTheHead
           executeCommand title handler run = do
             case handler st of
               Nothing -> do
-                liftIO $ putStrLn $ stateName <> ": unexpected command " <> title <> "\n"
+                liftIO $ putStrLn $ stateName st <> ": unexpected command " <> title <> "\n"
               Just f -> run f
             loop
 
@@ -253,7 +255,7 @@ eventProcessor submit nextEvent = openTheHead
             Just serverOutput ->
               case serverOutput of
                 Other tag -> do
-                  liftIO $ Text.putStrLn $ fromString stateName <> ": " <> tag <> "\n"
+                  liftIO $ Text.putStrLn $ fromString (stateName st) <> ": " <> tag <> "\n"
                   loop
                 HeadIsOpen utxo -> makeTransition "head opening" apiOpen ($ utxo)
                 SnapshotConfirmed utxo -> makeTransition "snapshot confirmation" apiSnapshot ($ utxo)
@@ -274,8 +276,9 @@ eventProcessor submit nextEvent = openTheHead
             Claim claimParams -> executeCommand "claim command" cmdClaim ($ claimParams)
 
     openTheHead :: m ()
-    openTheHead = defineHandler "openTheHead" emptyState
-      { apiOpen = Just $ \utxo -> do
+    openTheHead = defineHandler emptyState
+      { stateName = "openTheHead"
+      , apiOpen = Just $ \utxo -> do
           liftIO $ putStrLn $ "head is opened\n" <> show utxo <> "\n"
           playTheGame utxo
       , cmdInit = Just $ \period -> submit (NodeCommand.Init period)
@@ -284,8 +287,9 @@ eventProcessor submit nextEvent = openTheHead
       }
 
     playTheGame :: UTxO AlonzoEra -> m ()
-    playTheGame utxo = defineHandler "playTheGame" emptyState
-      { apiSnapshot = Just $ \updatedUtxo -> do
+    playTheGame utxo = defineHandler emptyState
+      { stateName = "playTheGame"
+      , apiSnapshot = Just $ \updatedUtxo -> do
           liftIO $ putStrLn $ "snapshot confirmed\n" <> show updatedUtxo <> "\n"
           playTheGame updatedUtxo
       , apiClose = Just $ do
@@ -328,15 +332,17 @@ eventProcessor submit nextEvent = openTheHead
       }
 
     waitForFanout :: m ()
-    waitForFanout = defineHandler "waitForFanout" emptyState
-      { apiFanout = Just $ do
+    waitForFanout = defineHandler emptyState
+      { stateName = "waitForFanout"
+      , apiFanout = Just $ do
           liftIO $ putStrLn "ready to fanout\n"
           waitForFinalization
       }
 
     waitForFinalization :: m ()
-    waitForFinalization = defineHandler "waitForFinalization" emptyState
-      { apiFinalized = Just $ \utxo -> do
+    waitForFinalization = defineHandler emptyState
+      { stateName = "waitForFinalization"
+      , apiFinalized = Just $ \utxo -> do
           liftIO $ putStrLn $ "head is finalized\n" <> show utxo <> "\n"
           openTheHead
       , cmdFanout = Just $ submit NodeCommand.Fanout
