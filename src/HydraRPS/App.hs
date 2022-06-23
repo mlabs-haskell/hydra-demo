@@ -26,7 +26,6 @@ import Cardano.Api (
   makeShelleyAddressInEra,
   makeTransactionBody,
   txOutValueToValue,
-  valueToLovelace,
  )
 import Cardano.Api qualified (Value)
 import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits))
@@ -42,8 +41,7 @@ import Data.Bifunctor (first)
 import Data.ByteString.Lazy (ByteString)
 import Data.Kind (Type)
 import Data.List (sortOn)
-import Data.Map (Map)
-import Data.Map qualified as Map (filter, lookupMin, mapMaybe, toList)
+import Data.Map qualified as Map (lookupMin, toList)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text.Lazy (Text)
 import Data.Text.Lazy.Encoding (decodeUtf8)
@@ -69,12 +67,14 @@ import HydraRPS.Tx (
   TxDatum (TxDatum),
   TxRedeemer (TxRedeemer),
   baseBodyContent,
+  extractLovelace,
   signTx,
   txInForSpending,
   txInForValidator,
   txOutToAddress,
   txOutToScript,
   txOutValueToAddress,
+  utxosAt,
  )
 import HydraRPS.UserInput qualified as UserInput
 
@@ -279,16 +279,6 @@ eventProcessor submit nextEvent = openTheHead
             _ -> do
               liftIO $ putStrLn "head is already opened"
               playTheGame utxo
-
-utxosAt :: AddressInEra AlonzoEra -> UTxO AlonzoEra -> UTxO AlonzoEra
-utxosAt addr (UTxO utxo) = UTxO (Map.filter matchAddress utxo)
-  where
-    matchAddress (TxOut txAddr _ _) = txAddr == addr
-
-extractLovelace :: UTxO AlonzoEra -> Map TxIn Lovelace
-extractLovelace (UTxO utxo) = Map.mapMaybe toLovelace utxo
-  where
-    toLovelace (TxOut _ txValue _) = valueToLovelace (txOutValueToValue txValue)
 
 allocateUtxos :: Lovelace -> [(TxIn, Lovelace)] -> Maybe ([TxIn], Lovelace)
 allocateUtxos _ [] = Nothing
