@@ -43,6 +43,7 @@ import Data.Kind (Type)
 import Data.List (sortOn)
 import Data.Map qualified as Map (lookupMin, toList)
 import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Monoid (Endo (..))
 import Data.String (fromString)
 import Data.Text.Lazy (Text)
 import Data.Text.Lazy.Encoding (decodeUtf8)
@@ -205,29 +206,68 @@ data StateDescription (m :: Type -> Type) = StateDescription
   , cmdClaim :: Maybe (UserInput.ClaimParams -> m ())
   }
 
-emptyState :: forall (m :: Type -> Type) . StateDescription m
-emptyState = StateDescription
-  { stateName = error "undefined state name"
-  , apiOpen = Nothing
-  , apiSnapshot = Nothing
-  , apiClose = Nothing
-  , apiFanout = Nothing
-  , apiFinalized = Nothing
-  , cmdInit = Nothing
-  , cmdCommit = Nothing
-  , cmdAbort = Nothing
-  , cmdClose = Nothing
-  , cmdFanout = Nothing
-  , cmdBet = Nothing
-  , cmdClaim = Nothing
-  }
+defineState :: forall (m :: Type -> Type). String -> Endo (StateDescription m) -> StateDescription m
+defineState name handlers =
+  appEndo
+    handlers
+    StateDescription
+      { stateName = name
+      , apiOpen = Nothing
+      , apiSnapshot = Nothing
+      , apiClose = Nothing
+      , apiFanout = Nothing
+      , apiFinalized = Nothing
+      , cmdInit = Nothing
+      , cmdCommit = Nothing
+      , cmdAbort = Nothing
+      , cmdClose = Nothing
+      , cmdFanout = Nothing
+      , cmdBet = Nothing
+      , cmdClaim = Nothing
+      }
+
+onApiOpen :: forall (m :: Type -> Type). (UTxO AlonzoEra -> m (StateDescription m)) -> Endo (StateDescription m)
+onApiOpen handler = Endo $ \s -> s {apiOpen = Just handler}
+
+onApiSnapshot :: forall (m :: Type -> Type). (UTxO AlonzoEra -> m (StateDescription m)) -> Endo (StateDescription m)
+onApiSnapshot handler = Endo $ \s -> s {apiSnapshot = Just handler}
+
+onApiClose :: forall (m :: Type -> Type). m (StateDescription m) -> Endo (StateDescription m)
+onApiClose handler = Endo $ \s -> s {apiClose = Just handler}
+
+onApiFanout :: forall (m :: Type -> Type). m (StateDescription m) -> Endo (StateDescription m)
+onApiFanout handler = Endo $ \s -> s {apiFanout = Just handler}
+
+onApiFinalized :: forall (m :: Type -> Type). (UTxO AlonzoEra -> m (StateDescription m)) -> Endo (StateDescription m)
+onApiFinalized handler = Endo $ \s -> s {apiFinalized = Just handler}
+
+onCmdInit :: forall (m :: Type -> Type). (Int -> m ()) -> Endo (StateDescription m)
+onCmdInit handler = Endo $ \s -> s {cmdInit = Just handler}
+
+onCmdCommit :: forall (m :: Type -> Type). (UTxO AlonzoEra -> m ()) -> Endo (StateDescription m)
+onCmdCommit handler = Endo $ \s -> s {cmdCommit = Just handler}
+
+onCmdAbort :: forall (m :: Type -> Type). m () -> Endo (StateDescription m)
+onCmdAbort handler = Endo $ \s -> s {cmdAbort = Just handler}
+
+onCmdClose :: forall (m :: Type -> Type). m () -> Endo (StateDescription m)
+onCmdClose handler = Endo $ \s -> s {cmdClose = Just handler}
+
+onCmdFanout :: forall (m :: Type -> Type). m () -> Endo (StateDescription m)
+onCmdFanout handler = Endo $ \s -> s {cmdFanout = Just handler}
+
+onCmdBet :: forall (m :: Type -> Type). (UserInput.PlayParams -> m ()) -> Endo (StateDescription m)
+onCmdBet handler = Endo $ \s -> s {cmdBet = Just handler}
+
+onCmdClaim :: forall (m :: Type -> Type). (UserInput.ClaimParams -> m ()) -> Endo (StateDescription m)
+onCmdClaim handler = Endo $ \s -> s {cmdClaim = Just handler}
 
 eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> m AppEvent -> m ()
 eventProcessor submit nextEvent = advance openTheHead
   where
     advance :: StateDescription m -> m ()
     advance state = do
-      let makeTransition :: forall (b :: Type) . String -> (StateDescription m -> Maybe b) -> (b -> m (StateDescription m)) -> m ()
+      let makeTransition :: forall (b :: Type). String -> (StateDescription m -> Maybe b) -> (b -> m (StateDescription m)) -> m ()
           makeTransition title handler run = do
             state' <-
               case handler state of
@@ -237,7 +277,7 @@ eventProcessor submit nextEvent = advance openTheHead
                 Just f -> run f
             advance state'
 
-          executeCommand :: forall (b :: Type) . String -> (StateDescription m -> Maybe b) -> (b -> m ()) -> m ()
+          executeCommand :: forall (b :: Type). String -> (StateDescription m -> Maybe b) -> (b -> m ()) -> m ()
           executeCommand title handler run = do
             case handler state of
               Nothing -> do
@@ -272,77 +312,84 @@ eventProcessor submit nextEvent = advance openTheHead
             Claim claimParams -> executeCommand "claim command" cmdClaim ($ claimParams)
 
     openTheHead :: StateDescription m
-    openTheHead = emptyState
-      { stateName = "openTheHead"
-      , apiOpen = Just $ \utxo -> do
-          liftIO $ putStrLn $ "head is opened\n" <> show utxo <> "\n"
-          return $ playTheGame utxo
-      , cmdInit = Just $ \period -> submit (NodeCommand.Init period)
-      , cmdAbort = Just $ submit NodeCommand.Abort
-      , cmdCommit = Just $ \utxoToCommit -> submit (NodeCommand.Commit utxoToCommit)
-      }
+    openTheHead =
+      defineState "openTheHead" $
+        onApiOpen
+          ( \utxo -> do
+              liftIO $ putStrLn $ "head is opened\n" <> show utxo <> "\n"
+              return $ playTheGame utxo
+          )
+          <> onCmdInit (submit . NodeCommand.Init)
+          <> onCmdAbort (submit NodeCommand.Abort)
+          <> onCmdCommit (submit . NodeCommand.Commit)
 
     playTheGame :: UTxO AlonzoEra -> StateDescription m
-    playTheGame utxo = emptyState
-      { stateName = "playTheGame"
-      , apiSnapshot = Just $ \updatedUtxo -> do
-          liftIO $ putStrLn $ "snapshot confirmed\n" <> show updatedUtxo <> "\n"
-          return $ playTheGame updatedUtxo
-      , apiClose = Just $ do
-          liftIO $ putStrLn "closing the head\n"
-          return waitForFanout
-      , cmdClose = Just $ submit NodeCommand.Close
-      , cmdBet = Just $ \pp -> do
-          state <- ask
-          let inputAllocation =
-                allocateUtxos betConstant $
-                  sortOn snd $
-                    Map.toList $
-                      extractLovelace $
-                        utxosAt state.hsUserCredentials.userAddress utxo
-          case inputAllocation of
-            Nothing -> liftIO $ putStrLn "not enough funds"
-            Just (refs, total) -> do
-              let unsignedTx = either error id $ buildBetTx refs total state pp
-                  signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
-              submit (NodeCommand.newTx signedTx)
-      , cmdClaim = Just $ \cp -> do
-          state <- ask
-          let redeemer =
-                GameRedeemer
-                  (state.hsUserCredentials.userPubKeyHash, cp.mySalt)
-                  (cp.theirPkh, cp.theirSalt)
-              txResult = do
-                collateralTxIn <-
-                  maybe (Left "could not find collateral") (Right . fst) $
-                    Map.lookupMin $
-                      unUTxO $
-                        utxosAt state.hsUserCredentials.userAddress utxo
-                scriptAddress <- first (("toCardanoAddress: " <>) . show) $ toCardanoAddress state.hsNetworkId rpsValidatorAddress
-                let betUtxos = utxosAt scriptAddress utxo
-                unsignedTx <- buildClaimTx collateralTxIn state (filterUtxos redeemer betUtxos) redeemer
-                pure $ signTx state.hsUserCredentials.userSkey unsignedTx
-          case txResult of
-            Left err -> liftIO $ putStrLn $ "claim tx building failed: " <> err
-            Right signedTx -> submit (NodeCommand.newTx signedTx)
-      }
+    playTheGame utxo =
+      defineState "playTheGame" $
+        onApiSnapshot
+          ( \updatedUtxo -> do
+              liftIO $ putStrLn $ "snapshot confirmed\n" <> show updatedUtxo <> "\n"
+              return $ playTheGame updatedUtxo
+          )
+          <> onApiClose
+            ( do
+                liftIO $ putStrLn "closing the head\n"
+                return waitForFanout
+            )
+          <> onCmdClose (submit NodeCommand.Close)
+          <> onCmdBet
+            ( \pp -> do
+                state <- ask
+                let inputAllocation =
+                      allocateUtxos betConstant $
+                        sortOn snd $
+                          Map.toList $
+                            extractLovelace $
+                              utxosAt state.hsUserCredentials.userAddress utxo
+                case inputAllocation of
+                  Nothing -> liftIO $ putStrLn "not enough funds"
+                  Just (refs, total) -> do
+                    let unsignedTx = either error id $ buildBetTx refs total state pp
+                        signedTx = signTx state.hsUserCredentials.userSkey unsignedTx
+                    submit (NodeCommand.newTx signedTx)
+            )
+          <> onCmdClaim
+            ( \cp -> do
+                state <- ask
+                let redeemer =
+                      GameRedeemer
+                        (state.hsUserCredentials.userPubKeyHash, cp.mySalt)
+                        (cp.theirPkh, cp.theirSalt)
+                    txResult = do
+                      collateralTxIn <-
+                        maybe (Left "could not find collateral") (Right . fst) $
+                          Map.lookupMin $
+                            unUTxO $
+                              utxosAt state.hsUserCredentials.userAddress utxo
+                      scriptAddress <- first (("toCardanoAddress: " <>) . show) $ toCardanoAddress state.hsNetworkId rpsValidatorAddress
+                      let betUtxos = utxosAt scriptAddress utxo
+                      unsignedTx <- buildClaimTx collateralTxIn state (filterUtxos redeemer betUtxos) redeemer
+                      pure $ signTx state.hsUserCredentials.userSkey unsignedTx
+                case txResult of
+                  Left err -> liftIO $ putStrLn $ "claim tx building failed: " <> err
+                  Right signedTx -> submit (NodeCommand.newTx signedTx)
+            )
 
     waitForFanout :: StateDescription m
-    waitForFanout = emptyState
-      { stateName = "waitForFanout"
-      , apiFanout = Just $ do
-          liftIO $ putStrLn "ready to fanout\n"
-          return waitForFinalization
-      }
+    waitForFanout = defineState "waitForFanout" $
+      onApiFanout $ do
+        liftIO $ putStrLn "ready to fanout\n"
+        return waitForFinalization
 
     waitForFinalization :: StateDescription m
-    waitForFinalization = emptyState
-      { stateName = "waitForFinalization"
-      , apiFinalized = Just $ \utxo -> do
-          liftIO $ putStrLn $ "head is finalized\n" <> show utxo <> "\n"
-          return openTheHead
-      , cmdFanout = Just $ submit NodeCommand.Fanout
-      }
+    waitForFinalization =
+      defineState "waitForFinalization" $
+        onApiFinalized
+          ( \utxo -> do
+              liftIO $ putStrLn $ "head is finalized\n" <> show utxo <> "\n"
+              return openTheHead
+          )
+          <> onCmdFanout (submit NodeCommand.Fanout)
 
 allocateUtxos :: Lovelace -> [(TxIn, Lovelace)] -> Maybe ([TxIn], Lovelace)
 allocateUtxos _ [] = Nothing
