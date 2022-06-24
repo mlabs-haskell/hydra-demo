@@ -21,9 +21,6 @@ services:
 
   hydra-node-alice:
     image: ghcr.io/input-output-hk/hydra-node@sha256:6ff08464a426fe2e6e4c7b4c091cc61cae10efa28276adf0914f2d33bd45742a
-    build:
-      context: ../
-      target: hydra-node
     volumes:
       - ./keys:/keys:ro
       - ./devnet/credentials:/credentials:ro
@@ -53,9 +50,6 @@ services:
 
   hydra-node-bob:
     image: ghcr.io/input-output-hk/hydra-node@sha256:6ff08464a426fe2e6e4c7b4c091cc61cae10efa28276adf0914f2d33bd45742a
-    build:
-      context: ../
-      target: hydra-node
     volumes:
       - ./keys:/keys:ro
       - ./devnet/credentials:/credentials:ro
@@ -82,46 +76,6 @@ services:
       hydra_net:
         ipv4_address: 172.16.238.20
     restart: always
-
-  hydra-tui-1:
-    image: ghcr.io/input-output-hk/hydra-tui:latest
-    build:
-       context: ../
-       target: hydra-tui
-    profiles:
-      - tui
-    command:
-      [ "--connect", "172.16.238.10:4001"
-      , "--node-socket", "/ipc/node.socket"
-      , "--network-id", "42"
-      , "--cardano-signing-key", "/credentials/alice.sk"
-      ]
-    volumes:
-      - ./devnet/credentials:/credentials:ro
-      - ./devnet/ipc/:/ipc
-    networks:
-      hydra_net:
-        ipv4_address: 172.16.238.11
-
-  hydra-tui-2:
-    image: ghcr.io/input-output-hk/hydra-tui:latest
-    build:
-       context: ../
-       target: hydra-tui
-    profiles:
-      - tui
-    command:
-      [ "--connect", "172.16.238.20:4001"
-      , "--node-socket", "/ipc/node.socket"
-      , "--network-id", "42"
-      , "--cardano-signing-key", "/credentials/bob.sk"
-      ]
-    volumes:
-      - ./devnet/credentials:/credentials:ro
-      - ./devnet/ipc/:/ipc
-    networks:
-      hydra_net:
-        ipv4_address: 172.16.238.21
 
 networks:
   hydra_net:

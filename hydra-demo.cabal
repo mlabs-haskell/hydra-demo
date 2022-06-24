@@ -24,9 +24,13 @@ common common-lang
     -fno-omit-interface-pragmas -fplugin=RecordDotPreprocessor
 
   build-depends:
+    , async
     , base                     ^>=4.14
+    , mtl
     , record-dot-preprocessor
     , record-hasfield
+    , transformers
+    , websockets
 
   default-extensions:
     NoImplicitPrelude
@@ -66,6 +70,7 @@ common common-lang
 library
   import:          common-lang
   exposed-modules:
+    HydraRPS.App
     HydraRPS.Node.Command
     HydraRPS.OffChain
     HydraRPS.OnChain
@@ -93,27 +98,24 @@ executable hydra-rps-game
   main-is:        Main.hs
   build-depends:
     , aeson
-    , async
     , bytestring
     , cardano-api
     , containers
     , hydra-demo
     , lens
-    , mtl
     , plutus-ledger
     , plutus-ledger-api
     , plutus-tx
     , text
-    , transformers
-    , websockets
 
   hs-source-dirs: app
 
 test-suite hydra-rps-game-test
-  import:         common-lang
-  type:           exitcode-stdio-1.0
-  main-is:        Spec.hs
+  import:             common-lang
+  type:               exitcode-stdio-1.0
+  main-is:            Spec.hs
   other-modules:
+    EndToEnd.Spec
     OffChain.Test
     Tx.DummyContract
     Tx.Spec
@@ -122,15 +124,30 @@ test-suite hydra-rps-game-test
     , aeson
     , bytestring
     , cardano-api
+    , containers
+    , extra
     , filepath
+    , hydra-cardano-api
+    , hydra-cluster
     , hydra-demo
+    , hydra-node
+    , hydra-prelude
+    , hydra-test-utils
+    , lens
+    , lens-aeson
     , plutus-contract
     , plutus-ledger
     , plutus-ledger-api
     , plutus-tx
     , plutus-tx-plugin
+    , QuickCheck
     , tasty
+    , tasty-hspec
     , tasty-hunit
     , text
 
-  hs-source-dirs: test
+  hs-source-dirs:     test
+  build-tool-depends:
+    hydra-node:hydra-node -any, cardano-node:cardano-node -any
+
+  ghc-options:        -threaded -rtsopts

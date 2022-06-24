@@ -11,6 +11,23 @@ source-repository-package
   --sha256: 1hh53whcj5y9kw4qpkiza7rmkniz18r493vv4dzl1a8r5fy3b2bv
   subdir:
     cardano-api
+    cardano-git-rev
+    cardano-node
+    trace-dispatcher
+    trace-resources
+    trace-forward
+
+source-repository-package
+  type: git
+  location: https://github.com/input-output-hk/optparse-applicative
+  tag: 7497a29cb998721a9068d5725d49461f2bba0e7a
+  --sha256: 1gvsrg925vynwgqwplgjmp53vj953qyh3wbdf34pw21c8r47w35r
+
+source-repository-package
+  type: git
+  location: https://github.com/input-output-hk/hedgehog-extras
+  tag: edf6945007177a638fbeb8802397f3a6f4e47c14
+  --sha256: 0wc7qzkc7j4ns2rz562h6qrx2f8xyq7yjcb7zidnj7f6j0pcd0i9
 
 source-repository-package
   type: git
@@ -23,6 +40,7 @@ source-repository-package
     binary/test
     cardano-crypto-class
     cardano-crypto-praos
+    cardano-crypto-tests
     measures
     orphans-deriving-via
     slotting
@@ -41,6 +59,7 @@ source-repository-package
   --sha256: 0avzyiqq0m8njd41ck9kpn992yq676b1az9xs77977h7cf85y4wm
   subdir:
     eras/alonzo/impl
+    eras/alonzo/test-suite
     eras/byron/chain/executable-spec
     eras/byron/crypto
     eras/byron/crypto/test
@@ -50,8 +69,10 @@ source-repository-package
     eras/shelley/impl
     eras/shelley/test-suite
     eras/shelley-ma/impl
+    eras/shelley-ma/test-suite
     libs/cardano-ledger-core
     libs/cardano-ledger-pretty
+    libs/cardano-ledger-test
     libs/cardano-protocol-tpraos
     libs/cardano-data
     libs/compact-map
@@ -84,6 +105,10 @@ source-repository-package
     contra-tracer
     iohk-monitoring
     tracer-transformers
+    plugins/backend-aggregation
+    plugins/backend-ekg
+    plugins/backend-monitoring
+    plugins/backend-trace-forwarder
 
 source-repository-package
   type: git
@@ -131,6 +156,12 @@ source-repository-package
 
 source-repository-package
   type: git
+  location: https://github.com/input-output-hk/ekg-forward
+  tag: 297cd9db5074339a2fb2e5ae7d0780debb670c63
+  --sha256: 1zcwry3y5rmd9lgxy89wsb3k4kpffqji35dc7ghzbz603y1gy24g
+
+source-repository-package
+  type: git
   location: https://github.com/input-output-hk/flat
   tag: ee59880f47ab835dbd73bea0847dab7869fc20d8
   --sha256: 1lrzknw765pz2j97nvv9ip3l1mcpf2zr4n56hwlz0rk7wq7ls4cm
@@ -168,6 +199,20 @@ source-repository-package
     lib/strict-non-empty-containers
     lib/test-utils
     lib/text-class
+
+source-repository-package
+  type: git
+  location: https://github.com/input-output-hk/hydra-poc/
+  tag: 0d7473a2455d23e75dc3bc4750e7ed37df2f3f7c
+  --sha256: 0z8s39afggwbkn7f7ximqb2hmxafxnmalqq5pbscrrn02hbg3rbn
+  subdir:
+    hydra-cluster
+    hydra-test-utils
+    hydra-prelude
+    hydra-node
+    hydra-cardano-api
+    hydra-plutus
+    plutus-cbor
 
 constraints:
   -- cardano-ledger-byron-test fails with too new hedgehog

@@ -2,6 +2,7 @@ module HydraRPS.Tx (
   TxDatum (..),
   TxRedeemer (..),
   baseBodyContent,
+  extractLovelace,
   parseTxIn,
   parseAddress,
   signTx,
@@ -10,13 +11,17 @@ module HydraRPS.Tx (
   txOutToScript,
   txOutToAddress,
   txOutValueToAddress,
+  utxosAt,
 ) where
 
 import Cardano.Api
 import Control.Applicative (pure)
 import Data.Aeson (Result (..), Value (String), fromJSON)
 import Data.Either (Either (..))
+import Data.Eq ((==))
 import Data.Function (($), (.))
+import Data.Map (Map)
+import Data.Map qualified as Map (filter, mapMaybe)
 import Data.Maybe (Maybe (..), maybe)
 import Data.String (String)
 import Data.Text (Text)
@@ -110,3 +115,13 @@ toCardanoData = Ledger.toCardanoAPIData . PlutusTx.toBuiltinData
 
 parseAddress :: err -> Text -> Either err (AddressInEra AlonzoEra)
 parseAddress err addressText = maybe (Left err) Right $ deserialiseAddress (AsAddressInEra AsAlonzoEra) addressText
+
+utxosAt :: AddressInEra AlonzoEra -> UTxO AlonzoEra -> UTxO AlonzoEra
+utxosAt addr (UTxO utxo) = UTxO (Map.filter matchAddress utxo)
+  where
+    matchAddress (TxOut txAddr _ _) = txAddr == addr
+
+extractLovelace :: UTxO AlonzoEra -> Map TxIn Lovelace
+extractLovelace (UTxO utxo) = Map.mapMaybe toLovelace utxo
+  where
+    toLovelace (TxOut _ txValue _) = valueToLovelace (txOutValueToValue txValue)
