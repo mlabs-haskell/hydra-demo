@@ -12,5 +12,4 @@ do
   sleep 0.1
 done
 echo '. done'
-sudo chown -Rv $(id -u):$(id -g) devnet/ipc
-docker-compose exec cardano-node bash -c 'cd /data; . ./init.sh'
+docker-compose exec -T -w /data cardano-node bash init.sh
