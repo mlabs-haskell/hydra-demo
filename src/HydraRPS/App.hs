@@ -93,12 +93,15 @@ runInHead c ba = runReaderT (unHeadM ba) c
 
 data AppEvent
   = ApiEvent (Maybe ServerOutput)
-  | UserEvent UserCommand
+  | UserCommand UserCommand
 
 data ServerOutput
   = Other Text
   | HeadIsOpen (UTxO AlonzoEra)
   | SnapshotConfirmed (UTxO AlonzoEra)
+  | HeadIsClosed
+  | ReadyToFanout
+  | HeadIsFinalized (UTxO AlonzoEra)
 
 data UserCommand
   = InitHead Int
@@ -133,7 +136,7 @@ withApiClient headState host port action = do
         nextServerEvent = receiveData ws
 
         enqueueUserCommand :: UserCommand -> IO ()
-        enqueueUserCommand = writeChan events . UserEvent
+        enqueueUserCommand = writeChan events . UserCommand
 
         enqueueApiEvent :: Maybe ServerOutput -> IO ()
         enqueueApiEvent = writeChan events . ApiEvent
@@ -180,6 +183,9 @@ decodeServerOutput bytes = do
       "SnapshotConfirmed" -> do
         snapshot <- o .: "snapshot"
         SnapshotConfirmed <$> snapshot .: "utxo"
+      "HeadIsClosed" -> pure HeadIsClosed
+      "ReadyToFanout" -> pure ReadyToFanout
+      "HeadIsFinalized" -> HeadIsFinalized <$> o .: "utxo"
       _ -> pure (Other tag)
 
 eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> IO AppEvent -> m ()
@@ -199,11 +205,20 @@ eventProcessor submit nextEvent = openTheHead
                 SnapshotConfirmed utxo -> do
                   liftIO $ putStrLn $ "unexpected snapshot confirmation (head is not opened yet)\n" <> show utxo <> "\n"
                   openTheHead
+                HeadIsClosed -> do
+                  liftIO $ putStrLn "unexpected head closure (head is not opened yet)\n"
+                  openTheHead
+                ReadyToFanout -> do
+                  liftIO $ putStrLn "unexpected ready to fanout (head is not opened yet)\n"
+                  openTheHead
+                HeadIsFinalized utxo -> do
+                  liftIO $ putStrLn $ "unexpected head finalization (head is not opened yet)\n" <> show utxo <> "\n"
+                  openTheHead
                 Other tag -> do
                   liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
                   openTheHead
             Nothing -> return ()
-        UserEvent command ->
+        UserCommand command ->
           case command of
             Exit -> return ()
             InitHead period -> submit (NodeCommand.Init period) >> openTheHead
@@ -230,15 +245,23 @@ eventProcessor submit nextEvent = openTheHead
                 SnapshotConfirmed updatedUtxo -> do
                   liftIO $ putStrLn $ "snapshot confirmed\n" <> show updatedUtxo <> "\n"
                   playTheGame updatedUtxo
+                HeadIsClosed -> do
+                  liftIO $ putStrLn "closing the head\n"
+                  waitForFanout
+                ReadyToFanout -> do
+                  liftIO $ putStrLn "unexpected ready to fanout (head is not closed yet)\n"
+                  playTheGame utxo
+                HeadIsFinalized unexpectedUtxo -> do
+                  liftIO $ putStrLn $ "unexpected head finalization (head is not closed yet)\n" <> show unexpectedUtxo <> "\n"
+                  playTheGame utxo
             Nothing -> return ()
-        UserEvent command ->
+        UserCommand command ->
           case command of
             Exit -> return ()
             CloseHead -> submit NodeCommand.Close >> playTheGame utxo
             IssueFanout -> do
-              -- TODO proper close/fan-out sequence
-              submit NodeCommand.Fanout
-              openTheHead
+              liftIO $ putStrLn "head is not closed yet\n"
+              playTheGame utxo
             Bet pp -> do
               state <- ask
               let inputAllocation =
@@ -279,6 +302,57 @@ eventProcessor submit nextEvent = openTheHead
             _ -> do
               liftIO $ putStrLn "head is already opened"
               playTheGame utxo
+
+    waitForFanout :: m ()
+    waitForFanout = do
+      event <- liftIO nextEvent
+      case event of
+        ApiEvent apiEvent ->
+          case apiEvent of
+            Just serverOutput -> do
+              case serverOutput of
+                Other tag -> do
+                  liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
+                  waitForFanout
+                ReadyToFanout -> do
+                  liftIO $ putStrLn "ready to fanout\n"
+                  waitForFinalization
+                _ -> do
+                  liftIO $ putStrLn "unexpected head state\n"
+                  waitForFanout
+            Nothing -> return ()
+        UserCommand command ->
+          case command of
+            Exit -> return ()
+            _ -> do
+              liftIO $ putStrLn "no input is expected in this state\n"
+              waitForFanout
+
+    waitForFinalization :: m ()
+    waitForFinalization = do
+      event <- liftIO nextEvent
+      case event of
+        ApiEvent apiEvent ->
+          case apiEvent of
+            Just serverOutput -> do
+              case serverOutput of
+                Other tag -> do
+                  liftIO $ Text.putStrLn $ "decoded node output: " <> tag <> "\n"
+                  waitForFinalization
+                HeadIsFinalized utxo -> do
+                  liftIO $ putStrLn $ "head is finalized\n" <> show utxo <> "\n"
+                  openTheHead
+                _ -> do
+                  liftIO $ putStrLn "unexpected head state\n"
+                  waitForFinalization
+            Nothing -> return ()
+        UserCommand command ->
+          case command of
+            Exit -> return ()
+            IssueFanout -> submit NodeCommand.Fanout >> waitForFinalization
+            _ -> do
+              liftIO $ putStrLn "only fanout input is expected in this state\n"
+              waitForFinalization
 
 allocateUtxos :: Lovelace -> [(TxIn, Lovelace)] -> Maybe ([TxIn], Lovelace)
 allocateUtxos _ [] = Nothing

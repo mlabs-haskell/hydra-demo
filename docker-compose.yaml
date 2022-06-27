@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   cardano-node:
-    image: inputoutput/cardano-node:latest
+    image: inputoutput/cardano-node:1.34.1
     volumes:
       - ./devnet:/data
     environment:
@@ -20,7 +20,7 @@ services:
       ]
 
   hydra-node-alice:
-    image: ghcr.io/input-output-hk/hydra-node@sha256:6ff08464a426fe2e6e4c7b4c091cc61cae10efa28276adf0914f2d33bd45742a
+    image: ghcr.io/input-output-hk/hydra-node:0.6.0
     volumes:
       - ./keys:/keys:ro
       - ./devnet/credentials:/credentials:ro
@@ -49,7 +49,7 @@ services:
     restart: always
 
   hydra-node-bob:
-    image: ghcr.io/input-output-hk/hydra-node@sha256:6ff08464a426fe2e6e4c7b4c091cc61cae10efa28276adf0914f2d33bd45742a
+    image: ghcr.io/input-output-hk/hydra-node:0.6.0
     volumes:
       - ./keys:/keys:ro
       - ./devnet/credentials:/credentials:ro
