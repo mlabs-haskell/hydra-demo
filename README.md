@@ -70,7 +70,7 @@ To open the head, we must submit an `Init`, followed by each user committing (`C
 Either player can send an `init n` command through the CLI, where `n` is the number of seconds allowed for contestation.
 
 After that, each participant must commit their funds. If you payed attention when running the `spin-up-devnet-from-scratch` script, you might have noticed the last lines logging something about seeding transactions.
-What happened there is that we distributed some funds to both alice and bob so that they have an UTxO to commit to the head (we also create transactions sending both of them fuel, which is needed by the node to drive the head protocol forward, fuel will be ignored for the rest of this discussion. Refer to [?](??) for more information).
+What happened there is that we distributed some funds to both alice and bob so that they have an UTxO to commit to the head (we also create transactions sending both of them fuel, which is needed by the node to drive the head protocol forward, fuel will be ignored for the rest of this discussion. Refer to [the hydra docs](https://hydra.family/head-protocol/docs/getting-started/quickstart/#fuel) for more information).
 Since our devnet setup is completely deterministic, the TxIds and indexes for those transactions are fixed, so we can used a fixed pair of UTxOs for the commit command. It is worth running:
 
 ```
