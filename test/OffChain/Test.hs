@@ -73,6 +73,12 @@ claimTests =
             .&&. walletFundsChange user1Wallet (Ada.toValue (-20000000))
         )
         p1Cheat
+    , checkPredicate
+        "P2 can not reclaim funds"
+        ( valueAtAddress rpsValidatorAddress (== Ada.toValue 40000000)
+            .&&. walletFundsChange user2Wallet (Ada.toValue (-20000000))
+        )
+        p2Cheat
     ]
   where
     p2Win :: Emulator.EmulatorTrace ()
@@ -138,6 +144,28 @@ claimTests =
       Emulator.callEndpoint @"Collect" h1 $
         GameRedeemer
           { grMyInfo = (user1PubKeyHash, user1Salt)
+          , grTheirInfo = (user2PubKeyHash, user2Salt)
+          }
+
+    p2Cheat :: Emulator.EmulatorTrace ()
+    p2Cheat = do
+      h1 <- Emulator.activateContractWallet user1Wallet endpoints
+      h2 <- Emulator.activateContractWallet user2Wallet endpoints
+
+      Emulator.callEndpoint @"Play" h1 $
+        PlayParams
+          { ppGesture = Scissors
+          , ppSalt = user1Salt
+          }
+      Emulator.callEndpoint @"Play" h2 $
+        PlayParams
+          { ppGesture = Paper
+          , ppSalt = user2Salt
+          }
+      void $ Emulator.waitNSlots 10
+      Emulator.callEndpoint @"Collect" h2 $
+        GameRedeemer
+          { grMyInfo = (user2PubKeyHash, user2Salt)
           , grTheirInfo = (user2PubKeyHash, user2Salt)
           }
 
