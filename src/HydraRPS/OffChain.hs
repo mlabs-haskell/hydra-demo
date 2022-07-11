@@ -1,3 +1,6 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Redundant bracket" #-}
+
 {-# LANGUAGE DeriveAnyClass #-}
 
 module HydraRPS.OffChain (

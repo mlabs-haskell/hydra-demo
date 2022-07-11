@@ -81,6 +81,7 @@ common common-lang
 library
   import:          common-lang
   exposed-modules:
+    HydraAuction.OffChain
     HydraAuction.OnChain
     HydraRPS.App
     HydraRPS.Node.Command
