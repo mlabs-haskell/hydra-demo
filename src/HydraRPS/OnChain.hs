@@ -72,10 +72,18 @@ mkRPSValidator :: GameDatum -> GameRedeemer -> ScriptContext -> Bool
 mkRPSValidator datum (GameRedeemer (myKey, mySalt) (theirKey, theirSalt)) ctx
   | isClaimingMyToken = case otherPlay theirKey of
     Nothing -> traceError "should contain other input matching their key"
-    Just (tOut, theirDatum) -> paysCorrectly (claimingPlay, toGesture (gdGesture datum) mySalt, myKey) (tOut, toGesture (gdGesture theirDatum) theirSalt, theirKey)
+    Just (tOut, theirDatum) ->
+      paysCorrectly
+        (claimingPlay, toGesture (gdGesture datum) mySalt, myKey)
+        (tOut, toGesture (gdGesture theirDatum) theirSalt, theirKey)
+      && isDifferentRedeemInfo (myKey, mySalt) (theirKey, theirSalt)
   | isClaimingTheirToken = case otherPlay myKey of
     Nothing -> traceError "should contain other input matching my key"
-    Just (tOut, myDatum) -> paysCorrectly (tOut, toGesture (gdGesture myDatum) mySalt, myKey) (claimingPlay, toGesture (gdGesture datum) theirSalt, theirKey)
+    Just (tOut, myDatum) ->
+      paysCorrectly
+        (tOut, toGesture (gdGesture myDatum) mySalt, myKey)
+        (claimingPlay, toGesture (gdGesture datum) theirSalt, theirKey)
+      && isDifferentRedeemInfo (myKey, mySalt) (theirKey, theirSalt)
   | otherwise = traceError "no good claim"
   where
     info :: TxInfo
@@ -120,6 +128,10 @@ mkRPSValidator datum (GameRedeemer (myKey, mySalt) (theirKey, theirSalt)) ctx
 
     isClaimingTheirToken :: Bool
     isClaimingTheirToken = matchesInfo datum theirKey
+
+    isDifferentRedeemInfo :: RedeemInfo -> RedeemInfo -> Bool
+    isDifferentRedeemInfo (pkhA, saltA) (pkhB, saltB) =
+      (pkhA /= pkhB) && (saltA /= saltB)
 
     fee :: Value
     fee = txInfoFee info
