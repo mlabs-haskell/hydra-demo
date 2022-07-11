@@ -76,14 +76,14 @@ mkRPSValidator datum (GameRedeemer (myKey, mySalt) (theirKey, theirSalt)) ctx
       paysCorrectly
         (claimingPlay, toGesture (gdGesture datum) mySalt, myKey)
         (tOut, toGesture (gdGesture theirDatum) theirSalt, theirKey)
-      && isDifferentRedeemInfo (myKey, mySalt) (theirKey, theirSalt)
+        && isDifferentRedeemInfo (myKey, mySalt) (theirKey, theirSalt)
   | isClaimingTheirToken = case otherPlay myKey of
     Nothing -> traceError "should contain other input matching my key"
     Just (tOut, myDatum) ->
       paysCorrectly
         (tOut, toGesture (gdGesture myDatum) mySalt, myKey)
         (claimingPlay, toGesture (gdGesture datum) theirSalt, theirKey)
-      && isDifferentRedeemInfo (myKey, mySalt) (theirKey, theirSalt)
+        && isDifferentRedeemInfo (myKey, mySalt) (theirKey, theirSalt)
   | otherwise = traceError "no good claim"
   where
     info :: TxInfo
