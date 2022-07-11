@@ -6,7 +6,7 @@ set -e
 
 TARGETDIR="devnet"
 
-[ -d "$TARGETDIR" ] && { echo "Cleaning up directory $TARGETDIR" ; sudo rm -r $TARGETDIR ; }
+[ -d "$TARGETDIR" ] && { echo "Cleaning up directory $TARGETDIR" ; doas rm -r $TARGETDIR ; }
 
 cp -af "./devnet-source/." "$TARGETDIR"
 find $TARGETDIR -type f -not -path $TARGETDIR/init.sh -exec chmod 0400 {} \;
