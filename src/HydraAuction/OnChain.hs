@@ -194,12 +194,15 @@ mkAuctionValidator ad redeemer ctx =
     getsValue :: PaymentPubKeyHash -> Value -> Bool
     getsValue h v =
       let
-        [o] = [ o'
-              | o' <- txInfoOutputs info
-              , txOutValue o' == v
-              ]
+        os = [ o
+             | o <- txInfoOutputs info
+             , txOutValue o == v
+             ]
       in
-        txOutAddress o == pubKeyHashAddress h Nothing
+        case os of
+          [o] -> txOutAddress o == pubKeyHashAddress h Nothing
+          _   -> traceError "expected exactly one TxOut"
+        
 
 typedAuctionValidator :: Scripts.TypedValidator Auctioning
 typedAuctionValidator = Scripts.mkTypedValidator @Auctioning
