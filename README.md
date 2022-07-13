@@ -22,7 +22,9 @@ We'll be running a local devnet consisting of the following components:
     * a Hydra Node communicating with the Cardano Node through its Unix socket
     * an application which communicates with this Hydra Node through WS API and also reads commands from the user's terminal and produces some diagnostic output reflecting the Hydra Head state transitions
 
-## Building and running
+# Running the app
+
+## Building and setting up the environment
 
 We'll need Docker, Docker Compose, and Nix with `nix-command` and `flakes` features enabled.
 
@@ -141,3 +143,23 @@ docker-compose exec cardano-node cardano-cli query utxo --testnet-magic 42 --who
 ```
 
 To confirm that the funds have been distributed correctly.
+
+# Code
+
+The code is split up as follows:
+
+Library code can be found in `src/HydraRPS`.
+
+- `OnChain` module contains the validator and all on-chain code and data structures.
+
+- `OffChain` module contains some off-chain code, this was mainly developed to test the contract and is used by tests.
+
+- `App` is the heart of the app, it contains most of the code to interact with the hydra node and all the main data structures.
+
+- `UserInput` contains some data definitions shared by off-chain code and code that interacts with teh head
+
+- `Node.Command` contains data structures and instance for hydra-node commands
+
+- `Tx` contains some common functions to build transactions through cardano-lib.
+
+The executable main code can be found in `app/Main`. This simply parses the command line arguments that are used by the CLI and takes care of converting user input (aquired through stdin) to the proper `UserCommand`
