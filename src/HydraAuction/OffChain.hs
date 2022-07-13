@@ -8,9 +8,7 @@
 {-# LANGUAGE TypeFamilies               #-}
 
 module HydraAuction.OffChain
-    ( Auction (..)
-    , AuctionSchema
-    , BidParams (..)
+    ( BidParams (..)
     , CloseParams (..)
     , StartParams (..)
     , bid

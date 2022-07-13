@@ -81,8 +81,12 @@ common common-lang
 library
   import:          common-lang
   exposed-modules:
+    HydraAuction.App
+    HydraAuction.Node.Command
     HydraAuction.OffChain
     HydraAuction.OnChain
+    HydraAuction.Tx
+    HydraAuction.UserInput
     HydraRPS.App
     HydraRPS.Node.Command
     HydraRPS.OffChain
@@ -122,6 +126,23 @@ executable hydra-rps-game
     , text
 
   hs-source-dirs: app
+
+executable hydra-nft-auction
+  import:         common-lang
+  main-is:        Main.hs
+  build-depends:
+    , aeson
+    , bytestring
+    , cardano-api
+    , containers
+    , hydra-demo
+    , lens
+    , plutus-ledger
+    , plutus-ledger-api
+    , plutus-tx
+    , text
+
+  hs-source-dirs: auction
 
 test-suite hydra-rps-game-test
   import:             common-lang
