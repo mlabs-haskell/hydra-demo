@@ -128,6 +128,15 @@ mkUserCredentials networkId skey = UserCredentials skey pkh addr
 
 type EnqueueCommand = UserCommand -> IO ()
 
+-- This is the main function to use and create an API client.
+-- It will initialise a connection with a hydra node (given the state and parameters)
+-- and accept user input and relay output from the node.
+-- It will then spawn 2 threads: one that is listening for events on the websocket
+-- and one that is waiting for UserCommands, these threads share a common channel
+-- that is used to place events (from the node or from the user).
+-- Accepts a callback that is passed `enqueueUserCommand` as an argument, and
+-- will be responsible to parse user input and use `enqueueUserCommand` to
+-- write commands in the channel
 withApiClient :: HeadState -> String -> Int -> (EnqueueCommand -> IO ()) -> IO ()
 withApiClient headState host port action = do
   runClient host port "/" $ \ws -> do
@@ -156,6 +165,7 @@ withApiClient headState host port action = do
         enqueueUserCommand Exit
         wait eventLoopAsync
 
+-- Read data from websocket and enqueue an event if the hydra-node emitted anything
 apiReader :: IO ByteString -> (Maybe ServerOutput -> IO ()) -> IO ()
 apiReader nextServerEvent enqueue = go
   where
@@ -188,6 +198,12 @@ decodeServerOutput bytes = do
       "HeadIsFinalized" -> HeadIsFinalized <$> o .: "utxo"
       _ -> pure (Other tag)
 
+-- This is the main loop.
+-- It uses some locally defined functions to represent the different states the app
+-- can be in (e.g. openTheHead while performing head initlialisation, playTheGame once
+-- initialisation is done, ecc).
+-- Takes as arguments a function that submits a command to the hydra node,
+-- and a function to receive the next event from the application.
 eventProcessor :: forall (m :: Type -> Type). (MonadIO m, MonadReader HeadState m) => (NodeCommand.Command -> m ()) -> IO AppEvent -> m ()
 eventProcessor submit nextEvent = openTheHead
   where
@@ -428,6 +444,9 @@ buildClaimTx collateralTxIn state [(myTxIn, myGesture, myTxValue, myDatum), (the
   first (("bad tx-body: " <>) . show) $ makeTransactionBody bodyContent
 buildClaimTx _ _ _ _ = Left "bad input parameters"
 
+-- Given a GameRedeemer and set of utxos, it will return a pair of [ myUtxo, theirUtxo ]
+-- according to the parameters passed in the redeemer.
+-- UTxOs are expanded to (TxIn, Gesture, Value, Datum) for easier use in `buildClaimTx`
 filterUtxos :: GameRedeemer -> UTxO AlonzoEra -> [(TxIn, Gesture, Cardano.Api.Value, GameDatum)]
 filterUtxos (GameRedeemer (myPk, mySalt) (theirPk, theirSalt)) (UTxO utxos) =
   foldl step [] (Map.toList utxos)
