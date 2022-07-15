@@ -12,7 +12,7 @@ module HydraAuction.Tx (
   txOutToAddress,
   txOutValueToAddress,
   utxosAt,
-) where
+nftValue) where
 
 import Cardano.Api
 import Control.Applicative (pure)
@@ -33,6 +33,8 @@ import Ledger.Tx.CardanoAPI (
   toCardanoScriptInEra,
  )
 import PlutusTx qualified (ToData, toBuiltinData)
+import Cardano.Api.Shelley (calcMinimumDeposit)
+import Prelude ((<>))
 
 baseBodyContent :: TxBodyContent BuildTx AlonzoEra
 baseBodyContent =
@@ -92,10 +94,10 @@ txInForValidator txIn validator (TxDatum datum) (TxRedeemer redeemer) exUnits = 
     -- only Plutus scripts are supported
     ScriptInEra _ (SimpleScript _ _) -> Left DeserialisationError
 
-txOutToScript :: PlutusTx.ToData d => NetworkId -> Ledger.Address -> Lovelace -> TxDatum d -> Either ToCardanoError (TxOut ctx AlonzoEra)
-txOutToScript networkId scriptAddress lovelace (TxDatum datum) = do
+txOutToScript :: PlutusTx.ToData d => NetworkId -> Ledger.Address -> Cardano.Api.Value -> TxDatum d -> Either ToCardanoError (TxOut ctx AlonzoEra)
+txOutToScript networkId scriptAddress nft (TxDatum datum) = do
   address <- toCardanoAddress networkId scriptAddress
-  pure $ TxOut address (lovelaceToTxOutValue lovelace) (TxOutDatumHash ScriptDataInAlonzoEra (hashScriptData scriptData))
+  pure $ TxOut address (TxOutValue MultiAssetInAlonzoEra nft) (TxOutDatumHash ScriptDataInAlonzoEra (hashScriptData scriptData))
   where
     scriptData = toCardanoData datum
 
@@ -125,3 +127,10 @@ extractLovelace :: UTxO AlonzoEra -> Map TxIn Lovelace
 extractLovelace (UTxO utxo) = Map.mapMaybe toLovelace utxo
   where
     toLovelace (TxOut _ txValue _) = valueToLovelace (txOutValueToValue txValue)
+
+nftValue :: PolicyId -> AssetName -> Cardano.Api.Value
+nftValue pi an = do
+  let
+    nft = valueFromList [(AssetId pi an, Quantity 1)]
+    minAda = lovelaceToValue $ calcMinimumDeposit nft (Lovelace 1)
+  nft <> minAda

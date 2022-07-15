@@ -47,8 +47,7 @@ data StartParams = StartParams
   deriving anyclass (ToJSON, FromJSON)
 
 data BidParams = BidParams
-    { bpCurrency :: !CurrencySymbol
-    , bpToken    :: !TokenName
+    { bpAuction  :: !Auction 
     , bpBid      :: !Integer
     }
   deriving stock (Generic)
@@ -88,7 +87,7 @@ start StartParams{..} = do
 
 bid :: forall w s. BidParams -> Contract w s Text ()
 bid BidParams{..} = do
-    (oref, o, d@AuctionDatum{..}) <- findAuction bpCurrency bpToken
+    (oref, o, d@AuctionDatum{..}) <- findAuction bpAuction.aCurrency bpAuction.aToken
     logInfo @P.String $ printf "found auction utxo with datum %s" (P.show d)
 
     when (bpBid < minBid d) $
@@ -96,7 +95,7 @@ bid BidParams{..} = do
     pkh <- ownPaymentPubKeyHash
     let b  = Bid {bBidder = pkh, bBid = bpBid}
         d' = d {adHighestBid = Just b}
-        v  = Value.singleton bpCurrency bpToken 1 <> Ada.lovelaceValueOf (minLovelace + bpBid)
+        v  = Value.singleton bpAuction.aCurrency bpAuction.aToken 1 <> Ada.lovelaceValueOf (minLovelace + bpBid)
         r  = Redeemer $ PlutusTx.toBuiltinData $ MkBid b
 
         lookups = Constraints.typedValidatorLookups typedAuctionValidator P.<>
@@ -115,8 +114,8 @@ bid BidParams{..} = do
     logInfo @P.String $ printf "made bid of %d lovelace in auction %s for token (%s, %s)"
         bpBid
         (P.show adAuction)
-        (P.show bpCurrency)
-        (P.show bpToken)
+        (P.show bpAuction.aCurrency)
+        (P.show bpAuction.aToken)
 
 close :: forall w s. CloseParams -> Contract w s Text ()
 close CloseParams{..} = do
