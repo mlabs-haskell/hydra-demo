@@ -433,6 +433,7 @@ filterUtxos (GameRedeemer (myPk, mySalt) (theirPk, theirSalt)) (UTxO utxos) =
   foldl step [] (Map.toList utxos)
   where
     step acc (txOutRef, TxOut _ txOutValue (TxOutDatumHash _ dh))
+      | length acc >= 2 = acc
       | Just (gesture, datum) <- extractGesture myPk mySalt dh = (txOutRef, gesture, txOutValueToValue txOutValue, datum) : acc
       | Just (gesture, datum) <- extractGesture theirPk theirSalt dh = acc ++ [(txOutRef, gesture, txOutValueToValue txOutValue, datum)]
       | otherwise = acc
