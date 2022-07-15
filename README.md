@@ -144,6 +144,14 @@ docker-compose exec cardano-node cardano-cli query utxo --testnet-magic 42 --who
 
 To confirm that the funds have been distributed correctly.
 
+# Going forward
+
+The goal of this project was to explore building a simple, but not trivial, application that runs inside a hydra head.
+We have implemented this as a CLI tool for simplicity, but we could imagine this game being played online through a web-UI. This would be a nice excercise in extending this project which would come with its unique sets of challenges.
+Another interesting avenue to explore, would be to adapt the setup so that hydra-nodes can be run from separate networks.
+
+With these two extensions this project could be the basis for the first website that allows players to play rounds of RPS (or really any other betting game) inside a hydra head.
+
 # Code
 
 The code is split up as follows:
@@ -163,3 +171,4 @@ Library code can be found in `src/HydraRPS`.
 - `Tx` contains some common functions to build transactions through cardano-lib.
 
 The executable main code can be found in `app/Main`. This simply parses the command line arguments that are used by the CLI and takes care of converting user input (aquired through stdin) to the proper `UserCommand`
+
