@@ -49,7 +49,7 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text.Lazy (Text)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.IO qualified as Text (putStrLn)
-import Ledger qualified (Address (Address), PubKeyHash, toCardanoAPIData)
+import Ledger qualified (Address (Address), PubKeyHash)
 import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash, toCardanoAddress)
 import Network.WebSockets (ConnectionException, receiveData, runClient, sendTextData)
 import Plutus.V1.Ledger.Api (Credential (PubKeyCredential), CurrencySymbol (unCurrencySymbol), fromBuiltin, TokenName (unTokenName))
@@ -509,7 +509,7 @@ filterUtxos :: Auction -> UTxO AlonzoEra -> [(TxIn, Cardano.Api.Value, AuctionDa
 filterUtxos auction (UTxO utxos) =
   foldl step [] (Map.toList utxos)
   where
-    step acc (txOutRef, TxOut _ txOutValue (TxOutDatumHash _ dh))
+    step acc (txOutRef, TxOut _ txOutValue (TxOutDatumHash _ dh) _)
       | Just datum <- extractAuctionAction myPk mySalt dh = (txOutRef, txOutValueToValue txOutValue, datum) : acc
       | otherwise = acc
     step acc _ = acc

@@ -7,6 +7,7 @@
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module HydraAuction.OnChain
     ( Auction (..)
@@ -209,13 +210,23 @@ typedAuctionValidator = Scripts.mkTypedValidator @Auctioning
     $$(PlutusTx.compile [|| mkAuctionValidator ||])
     $$(PlutusTx.compile [|| wrap ||])
   where
-    wrap = Scripts.wrapValidator @AuctionDatum @AuctionAction
+    wrap = wrapValidator @AuctionDatum @AuctionAction
 
 auctionValidator :: Validator
 auctionValidator = Scripts.validatorScript typedAuctionValidator
 
 auctionHash :: Ledger.ValidatorHash
-auctionHash = Scripts.validatorHash typedAuctionValidator
+auctionHash = validatorHash auctionValidator
 
 auctionAddress :: Ledger.Address
 auctionAddress = scriptHashAddress auctionHash
+
+{-# INLINABLE wrapValidator #-}
+wrapValidator
+    :: forall d r
+    . (PlutusTx.UnsafeFromData d, PlutusTx.UnsafeFromData r)
+    => (d -> r -> ScriptContext -> Bool)
+    -> WrappedValidatorType
+wrapValidator f d r p = check $ f (PlutusTx.unsafeFromBuiltinData d) (PlutusTx.unsafeFromBuiltinData r) (PlutusTx.unsafeFromBuiltinData p)
+
+type WrappedValidatorType = BuiltinData -> BuiltinData -> BuiltinData -> ()

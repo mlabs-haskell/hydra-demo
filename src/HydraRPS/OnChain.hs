@@ -170,7 +170,7 @@ typedRPSValidator =
     $$(PlutusTx.compile [||mkRPSValidator||])
     $$(PlutusTx.compile [||wrap||])
   where
-    wrap = Scripts.wrapValidator @GameDatum @GameRedeemer
+    wrap = wrapValidator @GameDatum @GameRedeemer
 
 rpsValidator :: Scripts.Validator
 rpsValidator = Scripts.validatorScript typedRPSValidator
@@ -180,3 +180,13 @@ rpsValidatorHash = Scripts.validatorHash typedRPSValidator
 
 rpsValidatorAddress :: Address
 rpsValidatorAddress = Ledger.scriptHashAddress rpsValidatorHash
+
+{-# INLINABLE wrapValidator #-}
+wrapValidator
+    :: forall d r
+    . (PlutusTx.UnsafeFromData d, PlutusTx.UnsafeFromData r)
+    => (d -> r -> ScriptContext -> Bool)
+    -> WrappedValidatorType
+wrapValidator f d r p = check $ f (PlutusTx.unsafeFromBuiltinData d) (PlutusTx.unsafeFromBuiltinData r) (PlutusTx.unsafeFromBuiltinData p)
+
+type WrappedValidatorType = BuiltinData -> BuiltinData -> BuiltinData -> ()

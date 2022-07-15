@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Redundant bracket" #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module HydraRPS.App (EnqueueCommand, HeadState (..), UserCommand (..), betConstant, withApiClient, UserCredentials, mkUserCredentials) where
 
@@ -31,17 +32,17 @@ import Cardano.Api (
   txOutValueToValue,
  )
 import Cardano.Api qualified (Value)
-import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits))
+import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits), fromPlutusData)
 import Control.Concurrent (newChan, readChan, writeChan)
 import Control.Concurrent.Async (wait, withAsync)
 import Control.Exception (try)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader.Class (MonadReader, ask)
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
-import Data.Aeson (ToJSON, eitherDecode, encode, (.:))
+import Data.Aeson (ToJSON (toJSON), eitherDecode, encode, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.Bifunctor (first)
-import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy (ByteString, toStrict, fromStrict)
 import Data.Kind (Type)
 import Data.List (sortOn)
 import Data.Map qualified as Map (lookupMin, toList)
@@ -49,11 +50,11 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text.Lazy (Text)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.IO qualified as Text (putStrLn)
-import Ledger qualified (Address (Address), PubKeyHash, toCardanoAPIData)
+import Ledger qualified (Address (Address), PubKeyHash)
 import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash, toCardanoAddress)
 import Network.WebSockets (ConnectionException, receiveData, runClient, sendTextData)
 import Plutus.V1.Ledger.Api (Credential (PubKeyCredential))
-import PlutusTx (ToData (toBuiltinData))
+import PlutusTx (ToData (toBuiltinData), builtinDataToData)
 import PlutusTx.Prelude (BuiltinByteString)
 
 import HydraRPS.Node.Command qualified as NodeCommand
@@ -82,6 +83,7 @@ import HydraRPS.Tx (
 import HydraRPS.UserInput qualified as UserInput
 
 import Prelude
+import Data.ByteString.Internal qualified as BSI (ByteString)
 
 data HeadState = HeadState
   { hsUserCredentials :: UserCredentials
@@ -131,6 +133,9 @@ mkUserCredentials networkId skey = UserCredentials skey pkh addr
 
 type EnqueueCommand = UserCommand -> IO ()
 
+instance ToJSON BSI.ByteString where
+  toJSON bs = toJSON $ decodeUtf8 $ fromStrict bs
+
 withApiClient :: HeadState -> String -> Int -> (EnqueueCommand -> IO ()) -> IO ()
 withApiClient headState host port action = do
   runClient host port "/" $ \ws -> do
@@ -146,8 +151,8 @@ withApiClient headState host port action = do
 
         submitCommand :: (MonadIO m, ToJSON a) => a -> m ()
         submitCommand input = do
-          let json = encode input
-          liftIO $ Text.putStrLn $ "client input:\n" <> decodeUtf8 json <> "\n"
+          let json = decodeUtf8 $ encode input
+          liftIO $ Text.putStrLn $ "client input:\n" <> json <> "\n"
           liftIO $ sendTextData ws json
 
         nextEvent :: IO AppEvent
@@ -435,7 +440,7 @@ filterUtxos :: GameRedeemer -> UTxO AlonzoEra -> [(TxIn, Gesture, Cardano.Api.Va
 filterUtxos (GameRedeemer (myPk, mySalt) (theirPk, theirSalt)) (UTxO utxos) =
   foldl step [] (Map.toList utxos)
   where
-    step acc (txOutRef, TxOut _ txOutValue (TxOutDatumHash _ dh))
+    step acc (txOutRef, TxOut _ txOutValue (TxOutDatumHash _ dh) _)
       | Just (gesture, datum) <- extractGesture myPk mySalt dh = (txOutRef, gesture, txOutValueToValue txOutValue, datum) : acc
       | Just (gesture, datum) <- extractGesture theirPk theirSalt dh = acc ++ [(txOutRef, gesture, txOutValueToValue txOutValue, datum)]
       | otherwise = acc
@@ -447,5 +452,5 @@ filterUtxos (GameRedeemer (myPk, mySalt) (theirPk, theirSalt)) (UTxO utxos) =
         [ (gesture, datum)
         | gesture <- [minBound .. maxBound]
         , let datum = buildDatum (UserInput.PlayParams gesture salt) key
-        , hashScriptData (Ledger.toCardanoAPIData (toBuiltinData datum)) == dh
+        , hashScriptData (fromPlutusData $ builtinDataToData (toBuiltinData datum)) == dh
         ]
