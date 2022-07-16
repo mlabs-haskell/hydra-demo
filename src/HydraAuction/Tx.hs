@@ -42,7 +42,10 @@ baseBodyContent =
   TxBodyContent
     { txIns = []
     , txInsCollateral = TxInsCollateralNone
+    , txInsReference = TxInsReferenceNone
     , txOuts = []
+    , txTotalCollateral = TxTotalCollateralNone
+    , txReturnCollateral = TxReturnCollateralNone
     , txFee = TxFeeExplicit TxFeesExplicitInBabbageEra 0
     , txValidityRange = (TxValidityNoLowerBound, TxValidityNoUpperBound ValidityNoUpperBoundInBabbageEra)
     , txMetadata = TxMetadataNone

@@ -42,7 +42,7 @@ import Control.Monad.Trans.Reader (ReaderT, runReaderT)
 import Data.Aeson (ToJSON (toJSON), eitherDecode, encode, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.Bifunctor (first)
-import Data.ByteString.Lazy (ByteString, toStrict, fromStrict)
+import Data.ByteString.Lazy (ByteString, fromStrict)
 import Data.Kind (Type)
 import Data.List (sortOn)
 import Data.Map qualified as Map (lookupMin, toList)
@@ -132,9 +132,6 @@ mkUserCredentials networkId skey = UserCredentials skey pkh addr
     addr = makeShelleyAddressInEra networkId (PaymentCredentialByKey vkeyHash) NoStakeAddress
 
 type EnqueueCommand = UserCommand -> IO ()
-
-instance ToJSON BSI.ByteString where
-  toJSON bs = toJSON $ decodeUtf8 $ fromStrict bs
 
 withApiClient :: HeadState -> String -> Int -> (EnqueueCommand -> IO ()) -> IO ()
 withApiClient headState host port action = do
@@ -454,3 +451,7 @@ filterUtxos (GameRedeemer (myPk, mySalt) (theirPk, theirSalt)) (UTxO utxos) =
         , let datum = buildDatum (UserInput.PlayParams gesture salt) key
         , hashScriptData (fromPlutusData $ builtinDataToData (toBuiltinData datum)) == dh
         ]
+
+-- This is probably not the best solution. Since it is an orphan.
+instance ToJSON BSI.ByteString where
+  toJSON bs = toJSON $ decodeUtf8 $ fromStrict bs

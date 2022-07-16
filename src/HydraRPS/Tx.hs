@@ -41,7 +41,10 @@ baseBodyContent =
   TxBodyContent
     { txIns = []
     , txInsCollateral = TxInsCollateralNone
+    , txInsReference = TxInsReferenceNone
     , txOuts = []
+    , txTotalCollateral = TxTotalCollateralNone
+    , txReturnCollateral = TxReturnCollateralNone
     , txFee = TxFeeExplicit TxFeesExplicitInAlonzoEra 0
     , txValidityRange = (TxValidityNoLowerBound, TxValidityNoUpperBound ValidityNoUpperBoundInAlonzoEra)
     , txMetadata = TxMetadataNone
