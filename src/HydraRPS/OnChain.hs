@@ -72,10 +72,16 @@ mkRPSValidator :: GameDatum -> GameRedeemer -> ScriptContext -> Bool
 mkRPSValidator datum (GameRedeemer (myKey, mySalt) (theirKey, theirSalt)) ctx
   | isClaimingMyToken = case otherPlay theirKey of
     Nothing -> traceError "should contain other input matching their key"
-    Just (tOut, theirDatum) -> paysCorrectly (claimingPlay, toGesture (gdGesture datum) mySalt, myKey) (tOut, toGesture (gdGesture theirDatum) theirSalt, theirKey)
+    Just (tOut, theirDatum) ->
+      paysCorrectly
+        (claimingPlay, toGesture (gdGesture datum) mySalt, myKey)
+        (tOut, toGesture (gdGesture theirDatum) theirSalt, theirKey)
   | isClaimingTheirToken = case otherPlay myKey of
     Nothing -> traceError "should contain other input matching my key"
-    Just (tOut, myDatum) -> paysCorrectly (tOut, toGesture (gdGesture myDatum) mySalt, myKey) (claimingPlay, toGesture (gdGesture datum) theirSalt, theirKey)
+    Just (tOut, myDatum) ->
+      paysCorrectly
+        (tOut, toGesture (gdGesture myDatum) mySalt, myKey)
+        (claimingPlay, toGesture (gdGesture datum) theirSalt, theirKey)
   | otherwise = traceError "no good claim"
   where
     info :: TxInfo
@@ -126,6 +132,7 @@ mkRPSValidator datum (GameRedeemer (myKey, mySalt) (theirKey, theirSalt)) ctx
 
     paysCorrectly :: (TxOut, Gesture, PubKeyHash) -> (TxOut, Gesture, PubKeyHash) -> Bool
     paysCorrectly (myTOut, myGesture, myPk) (theirTOut, theirGesture, theirPk)
+      | myTOut == theirTOut = trace "can not use the same TxOut" False
       | beats myGesture theirGesture = traceIfFalse "shouldPay all to myKey" $ valuePaidTo info myPk `geq` ((txOutValue myTOut <> txOutValue theirTOut) - fee)
       | beats theirGesture myGesture = traceIfFalse "shouldPay all to theirKey" $ valuePaidTo info theirPk `geq` ((txOutValue myTOut <> txOutValue theirTOut) - fee)
       | otherwise = traceIfFalse "should pay ada back" $ valuePaidTo info myPk `geq` (txOutValue myTOut - fee) && valuePaidTo info theirPk `geq` (txOutValue theirTOut - fee)
