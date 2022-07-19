@@ -5,8 +5,8 @@ A simple betting game for two players (“Rock-Paper-Scissors”) played inside 
 # Goals
 
 - Explore the implementation possibilities of a simple but still non-trivial distributed application with Hydra Node WebSocket API
-- Relate any feedback or pain points encoutered during development to the Hydra team
-- Produce an experience report for the whole process that can be used as reference both for the Hydra team to understand the hurdles encountered and for other parties wanting to develop on Hydra.
+- Relate any feedback or pain points encountered during development to the Hydra team
+- Produce an experience report for the whole process that can be used as a reference both for the Hydra team to understand the hurdles encountered and for other parties wanting to develop on Hydra.
 
 ## Advantages of Hydra in this use case
 
@@ -37,7 +37,7 @@ $ cd hydra-demo
 $ nix build .
 ```
 
-Then pull all the necessary Docker images, and spin-up the devnet. From the repository root:
+Then pull all the necessary Docker images, and spin up the devnet. From the repository root:
 
 ```
 $ docker-compose pull
@@ -65,15 +65,15 @@ Each of these will spin up an instance of the application, connected to a differ
 ## Opening the head
 
 We can now open the head and start playing the RPS game.
-[This](https://hydra.family/head-protocol/core-concepts) page has a good expalnation (alongside nice diagrams) to show all the phases of the Hydra head, an in-depth discussion of those is out of the scope of this tutorial, so we invite the reader to familiarise with that before going forward.
+[This](https://hydra.family/head-protocol/core-concepts) page has a good explanation (alongside nice diagrams) to show all the phases of the Hydra head, an in-depth discussion of those is out of the scope of this tutorial, so we invite the reader to familiarise themselves with that before going forward.
 
-To open the head, we must submit an `Init`, followed by each user committing (`Commit`) some UTXOs from the Cardano main-chain to the head.
+To open the head, we must submit an `Init`, followed by each user committing (`Commit`) some UTXOs from the Cardano main chain to the head.
 
 Either player can send an `init n` command through the CLI, where `n` is the number of seconds allowed for contestation.
 
-After that, each participant must commit their funds. If you payed attention when running the `spin-up-devnet-from-scratch` script, you might have noticed the last lines logging something about seeding transactions.
-What happened there is that we distributed some funds to both alice and bob so that they have an UTxO to commit to the head (we also create transactions sending both of them fuel, which is needed by the node to drive the head protocol forward, fuel will be ignored for the rest of this discussion. Refer to [the hydra docs](https://hydra.family/head-protocol/docs/getting-started/quickstart/#fuel) for more information).
-Since our devnet setup is completely deterministic, the TxIds and indexes for those transactions are fixed, so we can used a fixed pair of UTxOs for the commit command. It is worth running:
+After that, each participant must commit their funds. If you paid attention when running the `spin-up-devnet-from-scratch` script, you might have noticed the last lines logging something about seeding transactions.
+What happened there is that we distributed some funds to both Alice and Bob so that they have an UTxO to commit to the head (we also create transactions sending both of them fuel, which is needed by the node to drive the head protocol forward, fuel will be ignored for the rest of this discussion. Refer to [the hydra docs](https://hydra.family/head-protocol/docs/getting-started/quickstart/#fuel) for more information).
+Since our devnet setup is completely deterministic, the TxIds and indexes for those transactions are fixed, so we can use a fixed pair of UTxOs for the commit command. It is worth running:
 
 ```
 docker-compose exec cardano-node cardano-cli query utxo --testnet-magic 42 --whole-utxo
@@ -87,7 +87,7 @@ Now, Alice can commit some funds to the head by running:
 commit 3eeea5c2376b033d5bdeab6fe551950883b04c08a37848c6d648ea03476dce83#1 addr_test1vru2drx33ev6dt8gfq245r5k0tmy7ngqe79va69de9dxkrg09c7d3 1000000000
 ```
 
-The `commit` command requires the `TxIn` of the UTxO being commited, as mentioned previously these are deterministic so the one above will always work.
+The `commit` command requires the `TxIn` of the UTxO being committed, as mentioned previously these are deterministic so the one above will always work.
 We also pass in the `address` of the committer and the amount of lovelace in the UTxO (this is only done for convenience, we could fetch this information from the `TxId`).
 
 Similarly, Bob can commit some funds with:
@@ -96,7 +96,7 @@ Similarly, Bob can commit some funds with:
 commit bd279aad1fa00d7f5cd00b33ad0ae20ac493f29558809a110761b4d3136324a3#1 addr_test1vqg9ywrpx6e50uam03nlu0ewunh3yrscxmjayurmkp52lfskgkq5k 1000000000
 ```
 
-At this point the head will be open and we can start placing and collecting bets.
+At this point, the head will be open and we can start placing and collecting bets.
 
 ## Playing the game
 
@@ -116,7 +116,7 @@ while Bob could bet:
 bet Paper 5678
 ```
 
-Once the two bets are placed, either player can issue a claim command (the CLI will create the appropriate tx based on who won the round). The claim command takes as arguments your own salt, and the pair of pkh and salt from the other player (this information is required to build the redeemer for the locked UTxOs).
+Once the two bets are placed, either player can issue a claim command (the CLI will create the appropriate tx based on who won the round). The claim command takes as arguments your own salt and the pair of pkh and salt from the other player (this information is required to build the redeemer for the locked UTxOs).
 
 
 In this example, Bob would issue:
@@ -129,14 +129,14 @@ to claim the UTxO pair, as he is the winner of this round.
 
 (Note the CLI will print the address and pkh of each participant on startup)
 
-From this moment onwards we can play around with the CLI placing more bets and testing the claim. Keep in mind that currently, the claim command will try to claim the first pair of UTxOs at the script address that match the given salts.
+From this moment onwards we can play around with the CLI placing more bets and testing the claim. Keep in mind that currently, the claim command will try to claim the first pair of UTxOs at the script address that matches the given salts.
 
 ## Closing the head
 
-Once we are done playing the game, we can close the head and observe the funds being re-distributed to the Cardano main-chain.
-At any time, a player can issue a `close` command through the CLI. This will cause the head to transition to the `Closing` state immediately, and stop processing further transactions. After the contestation period is over, either user can issue a `fanout` command through the CLI that will finialise the head and distribute funds out according to their distribution inside the head.
+Once we are done playing the game, we can close the head and observe the funds being re-distributed to the Cardano main chain.
+At any time, a player can issue a `close` command through the CLI. This will cause the head to transition to the `Closing` state immediately, and stop processing further transactions. After the contestation period is over, either user can issue a `fanout` command through the CLI that will finalise the head and distribute funds according to their distribution inside the head.
 
-We can, once again, check the UTxO distribution on the main-chain by running:
+We can, once again, check the UTxO distribution on the main chain by running:
 
 ```
 docker-compose exec cardano-node cardano-cli query utxo --testnet-magic 42 --whole-utxo
@@ -146,11 +146,11 @@ To confirm that the funds have been distributed correctly.
 
 # Going forward
 
-The goal of this project was to explore building a simple, but not trivial, application that runs inside a hydra head.
-We have implemented this as a CLI tool for simplicity, but we could imagine this game being played online through a web-UI. This would be a nice excercise in extending this project which would come with its unique sets of challenges.
-Another interesting avenue to explore, would be to adapt the setup so that hydra-nodes can be run from separate networks.
+The goal of this project was to explore building a simple - but not trivial - application that runs inside a hydra head.
+We have implemented this as a CLI tool for simplicity, but we could imagine this game being played online through a web UI. This would be a nice exercise in extending this project which would come with its unique sets of challenges.
+Another interesting avenue to explore would be to adapt the setup so that hydra-nodes can be run from separate networks.
 
-With these two extensions this project could be the basis for the first website that allows players to play rounds of RPS (or really any other betting game) inside a hydra head.
+With these two extensions, this project could be the basis for the first website that allows players to play rounds of RPS (or any other betting game) inside a hydra head.
 
 # Code
 
@@ -164,11 +164,11 @@ Library code can be found in `src/HydraRPS`.
 
 - `App` is the heart of the app, it contains most of the code to interact with the hydra node and all the main data structures.
 
-- `UserInput` contains some data definitions shared by off-chain code and code that interacts with teh head
+- `UserInput` contains some data definitions shared by off-chain code and code that interacts with the head
 
-- `Node.Command` contains data structures and instance for hydra-node commands
+- `Node.Command` contains data structures and instances for hydra-node commands
 
 - `Tx` contains some common functions to build transactions through cardano-lib.
 
-The executable main code can be found in `app/Main`. This simply parses the command line arguments that are used by the CLI and takes care of converting user input (aquired through stdin) to the proper `UserCommand`
+The executable main code can be found in `app/Main`. This simply parses the command line arguments that are used by the CLI and takes care of converting user input (acquired through stdin) to the proper `UserCommand`
 

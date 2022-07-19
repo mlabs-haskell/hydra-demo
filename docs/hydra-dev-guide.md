@@ -4,33 +4,33 @@ This guide is meant to be a tutorial on how to develop an application on Hydra. 
 
 ## On-chain code
 
-On chain code will be exactly the same between Cardano and a hydra head. This is in fact one of the main selling points of the hydra design (heads are also called isomorphic state channels) the only caveat being that (at the time of writing 07-22) hydra heads do not support validity ranges for transactions, the reason for this is there is currently no notion of time inside of a hydra head.
+On-chain code will be exactly the same between Cardano and a hydra head. This is one of the main selling points of the hydra design (heads are also called isomorphic state channels) the only caveat being that (at the time of writing 07-22) hydra heads do not support validity ranges for transactions, the reason for this is there is currently no notion of time inside of a hydra head.
 
 ## Off-chain code
 
-Here is where the differences will begin. Usually DApp developers will write some off-chain code to interact with their validators and minting policies.
+Here is where the differences will begin. Usually, DApp developers will write some off-chain code to interact with their validators and minting policies.
 This off-chain code will usually be exposed through an HTTP interface that frontends can access to drive interactions with the application forward.
-Off-chain code is usually written in the Contract monad, which is used to build build transactions and interact with the Cardano blockchain in a controlled way.
+Off-chain code is usually written in the Contract monad, which is used to build transactions and interact with the Cardano blockchain in a controlled way.
 
-When it comes to hydra, the developer will not have access to similar tools. The interface to speak to a hydra node is a websocket. Developers must build applications that connect to these websockets and are able to send and receive events through it.
+When it comes to hydra, the developer will not have access to similar tools. The interface to speak to a hydra node is a websocket. Developers must build applications that connect to these websockets and can send and receive events through them.
 
 The Hydra node will emit several commands through this websocket: the API is defined [here](https://hydra.family/head-protocol/api-reference).
-The API reference is divided in two sections: Pub and Sub.
-The first one describes the commands that a hydra node will accept, while the second one describe the events that will be emitted through the websocket.
+The API reference is divided into two sections: Pub and Sub.
+The first one describes the commands that a hydra node will accept, while the second one describes the events that will be emitted through the websocket.
 
-An important event developers will be interested in is `hotConfirmed`. This event is emitted once all the hydra nodes that are partaking in the head, have seen and signed a transaction submitted by one of them.
+An important event developers will be interested in is `SnaphotConfirmed`. This event is emitted once all the hydra nodes that are partaking in the head, have seen and signed a transaction submitted by one of them.
 
-Once a transaction lands inside a hot, it is confirmed and there are no chances for it to be rolled back. This is an important distinction from L1: in that case when a node sees a transaction there is still a chance that it might be rolled back (where the probability of this goes to 0 as more blocks are added), in the hydra world, the only way to make a hot is to have every single node in the head approve of it.
-This is a synchronous process, and requires all the head participants to be online all the time, the tradeoff is that there is no uncertainty or possibility of rollbacks, the moment the hot is confirmed there is no going back.
+Once a transaction lands inside a hot, it is confirmed and there are no chances for it to be rolled back. This is an important distinction from L1: in that case, when a node sees a transaction there is still a chance that it might be rolled back (where the probability of this goes to 0 as more blocks are added), in the hydra world, the only way to make a hot is to have every single node in the head approve of it.
+This is a synchronous process and requires all the head participants to be online all the time, the tradeoff is that there is no uncertainty or possibility of rollbacks, the moment the hot is confirmed there is no going back.
 
-For the Pub side of the API, an important endpoint will be `NewTx`. This is used to submit a transaction to the node. There are a couple of ways the transaction can be submitted, but the simplest method we found is to simply serialise the transaciton built with `Cardano.Api` to CBOR and submit that through a websocket.
+For the Pub side of the API, an important endpoint will be `NewTx`. This is used to submit a transaction to the node. There are a couple of ways the transaction can be submitted, but the simplest method we found is to simply serialise the transaction built with `Cardano.Api` to CBOR and submit that through a websocket.
 
 Building transactions with `Cardano.Api` is quite different compared to the facilities provided by the `Ledger.Constraints` module: the whole transaction record must be built by hand.
 We have extracted some helper functions for this in the `Tx` module, examples of how to use these can be found in the `buildClaimTx` and `buildBetTx` functions in the `App` module.
 
 `buildBetTx` builds a transaction that only places some lovelace at an address, as such it is simpler: it builds the datum and uses `txOutToScript` to create a TxOut that sends that to the correct script address.
 
-`buildClaimTx` has to instead consume UTxOs at the script address, as such it has to take care of building references to the `TxIn`s that are locked at the validator appropriately, this includes providing datum, redeemer and execution units for each of those inputs. The `Tx` module exports `txInForValidator` which can be used as a helper to build the `TxIn`s. Finally we also have to manually specify collateral, in our case we have decided to leave that as an argument to `buildClaimTx`, so before that we have to query the users UTxOs and pick a suitable one to be used as collateral.
+`buildClaimTx` has to instead consume UTxOs at the script address, as such it has to take care of building references to the `TxIn`s that are locked at the validator appropriately, this includes providing datum, redeemer and execution units for each of those inputs. The `Tx` module exports `txInForValidator` which can be used as a helper to build the `TxIn`s. Finally, we also have to manually specify collateral, in our case we have decided to leave that as an argument to `buildClaimTx`, so before that, we have to query the users' UTxOs and pick a suitable one to be used as collateral.
 
 ## Testing
 
@@ -39,14 +39,14 @@ Testing inside the hydra head can be quite different than for normal DApps, the 
 However it is possible to spin up a cardano-node, and a cluster of hydra-nodes programmatically and run tests directly on that.
 The module hydra-cluster provides functions to spin up the set of required nodes and to run assertions on their output.
 
-A couple of steps are required to setup the initial environment:
+A couple of steps are required to set up the initial environment:
 
-- We need to spin up at least one Cardano BFT node. This can be done with `withBFTNode` that takes the cardano node configuration and a callback which has access to an instance of the running node. The node parmameters can be generated by a helper also exported by hydra-cluster: `newNodeConfig`.
+- We need to spin up at least one Cardano BFT node. This can be done with `withBFTNode` which takes the cardano node configuration and a callback that has access to an instance of the running node. The node parameters can be generated by a helper also exported by hydra-cluster: `newNodeConfig`.
 
 - In the callback, we can then spin up a cluster of hydra-nodes using `withHydraCluster`. This will require the cardano-node socket, which can be obtained from the running node instance, and a set of cardano and hydra keys which can also be easily generated through helpers exposed by `hydra-cluster`.
 
-Lets walk through a slightly simplified version of one of out tests, with comments explaining the setup we just described.
-This test will spin up a single cardano node, and a pair of hydra nodes (alice and bob).
+Let's walk through a slightly simplified version of one of our tests, with comments explaining the setup we just described.
+This test will spin up a single cardano node, and a pair of hydra nodes (Alice and Bob).
 
 ```haskell
 -- Tracer is an instance of https://hackage.haskell.org/package/contra-tracer and is used by several
@@ -81,16 +81,16 @@ it "spins up two hydra nodes" $ \tracer ->
             ...
 ```
 
-At this point we are ready to start sending commands to the hydra-nodes programmatically.
+At this point, we are ready to start sending commands to the hydra-nodes programmatically.
 Hydra-cluster also exposes a `send` function, which takes an instance of the hydra-node and uses its websocket connection to send commands to the process.
 Remember that we must handle the whole head initialisation inside the test as well, so the first step will always be for one of the two nodes to `send` an `Init` command
 to start the opening of the head.
 
-Finally hydra-node exposes several useful functions to wait for output from the hydra nodes themselves, both these functions have a timeout so they will function as assertions from a testing point of view; that is, if the node does not output what we expect within a certain timeframe, an error will be thrown and the whole test will fail.
+Finally, hydra-node exposes several useful functions to wait for output from the hydra nodes themselves, both these functions have a timeout so they will function as assertions from a testing point of view; that is, if the node does not output what we expect within a certain timeframe, an error will be thrown and the whole test will fail.
 
 Remember the nodes will always produce output in JSON format, so all the assertions will expect some form of Aeson.Value to check against.
 
 `waitFor` will take a list of hydra-nodes and an Aeson Value, and check if they all produce the expected output within the allowed timeframe.
 
 `waitMatch` instead can be used to parse the output and possibly extract some information from that to be used in subsequent steps of the test.
-For example, after we submit a transaction to the node, we can use `waitMatch` to parse the `hotConfirmed` event, and extract the transactions present in that hot to check if it contains the transaction we just sent.
+For example, after we submit a transaction to the node, we can use `waitMatch` to parse the `SnaphotConfirmed` event and extract the transactions present in that hot to check if it contains the transaction we just sent.
