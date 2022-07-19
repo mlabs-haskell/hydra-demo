@@ -100,7 +100,7 @@ library
     , cardano-api
     , containers
     , lens
-    , plutus-contract
+    -- , plutus-contract
     , plutus-ledger
     , plutus-ledger-api
     , plutus-ledger-constraints
@@ -145,44 +145,44 @@ executable hydra-nft-auction
 
   hs-source-dirs: auction
 
-test-suite hydra-rps-game-test
-  import:             common-lang
-  type:               exitcode-stdio-1.0
-  main-is:            Spec.hs
-  other-modules:
-    EndToEnd.Spec
-    OffChain.Test
-    Tx.DummyContract
-    Tx.Spec
+-- test-suite hydra-rps-game-test
+--   import:             common-lang
+--   type:               exitcode-stdio-1.0
+--   main-is:            Spec.hs
+--   other-modules:
+--     EndToEnd.Spec
+--     OffChain.Test
+--     Tx.DummyContract
+--     Tx.Spec
 
-  build-depends:
-    , aeson
-    , bytestring
-    , cardano-api
-    , containers
-    , extra
-    , filepath
-    , hydra-cardano-api
-    , hydra-cluster
-    , hydra-demo
-    , hydra-node
-    , hydra-prelude
-    , hydra-test-utils
-    , lens
-    , lens-aeson
-    , plutus-contract
-    , plutus-ledger
-    , plutus-ledger-api
-    , plutus-tx
-    , plutus-tx-plugin
-    , QuickCheck
-    , tasty
-    , tasty-hspec
-    , tasty-hunit
-    , text
+--   build-depends:
+--     , aeson
+--     , bytestring
+--     , cardano-api
+--     , containers
+--     , extra
+--     , filepath
+--     , hydra-cardano-api
+--     , hydra-cluster
+--     , hydra-demo
+--     , hydra-node
+--     , hydra-prelude
+--     , hydra-test-utils
+--     , lens
+--     , lens-aeson
+--     , plutus-contract
+--     , plutus-ledger
+--     , plutus-ledger-api
+--     , plutus-tx
+--     , plutus-tx-plugin
+--     , QuickCheck
+--     , tasty
+--     , tasty-hspec
+--     , tasty-hunit
+--     , text
 
-  hs-source-dirs:     test
-  build-tool-depends:
-    hydra-node:hydra-node -any, cardano-node:cardano-node -any
+--   hs-source-dirs:     test
+--   build-tool-depends:
+--     hydra-node:hydra-node -any, cardano-node:cardano-node -any
 
-  ghc-options:        -threaded -rtsopts
+--   ghc-options:        -threaded -rtsopts
