@@ -20,8 +20,8 @@ The first one describes the commands that a hydra node will accept, while the se
 
 An important event developers will be interested in is `SnaphotConfirmed`. This event is emitted once all the hydra nodes that are partaking in the head, have seen and signed a transaction submitted by one of them.
 
-Once a transaction lands inside a hot, it is confirmed and there are no chances for it to be rolled back. This is an important distinction from L1: in that case, when a node sees a transaction there is still a chance that it might be rolled back (where the probability of this goes to 0 as more blocks are added), in the hydra world, the only way to make a hot is to have every single node in the head approve of it.
-This is a synchronous process and requires all the head participants to be online all the time, the tradeoff is that there is no uncertainty or possibility of rollbacks, the moment the hot is confirmed there is no going back.
+Once a transaction lands inside a snapshot, it is confirmed and there are no chances for it to be rolled back. This is an important distinction from L1: in that case, when a node sees a transaction there is still a chance that it might be rolled back (where the probability of this goes to 0 as more blocks are added), in the hydra world, the only way to make a snapshot is to have every single node in the head approve of it.
+This is a synchronous process and requires all the head participants to be online all the time, the tradeoff is that there is no uncertainty or possibility of rollbacks, the moment the snapshot is confirmed there is no going back.
 
 For the Pub side of the API, an important endpoint will be `NewTx`. This is used to submit a transaction to the node. There are a couple of ways the transaction can be submitted, but the simplest method we found is to simply serialise the transaction built with `Cardano.Api` to CBOR and submit that through a websocket.
 
@@ -93,4 +93,4 @@ Remember the nodes will always produce output in JSON format, so all the asserti
 `waitFor` will take a list of hydra-nodes and an Aeson Value, and check if they all produce the expected output within the allowed timeframe.
 
 `waitMatch` instead can be used to parse the output and possibly extract some information from that to be used in subsequent steps of the test.
-For example, after we submit a transaction to the node, we can use `waitMatch` to parse the `SnaphotConfirmed` event and extract the transactions present in that hot to check if it contains the transaction we just sent.
+For example, after we submit a transaction to the node, we can use `waitMatch` to parse the `SnaphotConfirmed` event and extract the transactions present in that snapshot to check if it contains the transaction we just sent.
