@@ -2,30 +2,29 @@ version: "3.9"
 
 services:
   cardano-node:
-    image: inputoutput/cardano-node:1.34.1
+    image: inputoutput/cardano-node:1.35.0
     volumes:
       - ./devnet:/data
+      - /home/mitch/cardano/node/testnet:/node
     environment:
-      - CARDANO_BLOCK_PRODUCER=true
-      - CARDANO_SOCKET_PATH=/data/ipc/node.socket # used by cardano-node
-      - CARDANO_NODE_SOCKET_PATH=/data/ipc/node.socket # used by cardano-cli
+      - CARDANO_SOCKET_PATH=/node/node.socket # used by cardano-node
+      - CARDANO_NODE_SOCKET_PATH=/node/node.socket # used by cardano-cli
     command:
       [ "run"
-      , "--config", "/data/cardano-node.json"
-      , "--topology", "/data/topology.json"
-      , "--database-path", "/data/db"
-      , "--shelley-operational-certificate", "/data/credentials/opcert1.cert"
-      , "--shelley-kes-key", "/data/credentials/delegate1.kes.skey"
-      , "--shelley-vrf-key", "/data/credentials/delegate1.vrf.skey"
+      , "--config", "/data/testnet-config.json"
+      , "--topology", "/data/testnet-topology.json"
+      , "--database-path", "/node/db"
+      , "--socket-path", "/node/node.socket"
       ]
 
   hydra-node-alice:
-    image: ghcr.io/input-output-hk/hydra-node:0.6.0
+    image: hydra-node-vasil:latest
     volumes:
       - ./keys:/keys:ro
       - ./devnet/credentials:/credentials:ro
       - ./devnet/ipc:/ipc
       - ./devnet:/config
+      - /home/mitch/cardano/node/testnet:/node
     ports:
       - "4001:4001"
     command:
@@ -38,10 +37,10 @@ services:
       , "--hydra-verification-key", "/keys/bob.vk"
       , "--cardano-signing-key", "/credentials/alice.sk"
       , "--cardano-verification-key", "/credentials/bob.vk"
-      , "--ledger-genesis", "/config/genesis-shelley.json"
-      , "--ledger-protocol-parameters", "/config/protocol-parameters.json"
-      , "--network-id", "42"
-      , "--node-socket", "/ipc/node.socket"
+      , "--ledger-genesis", "/config/testnet-shelley-genesis.json"
+      , "--ledger-protocol-parameters", "/node/protocol.json"
+      , "--network-id", "1097911063"
+      , "--node-socket", "/node/node.socket"
       ]
     networks:
       hydra_net:
@@ -49,12 +48,13 @@ services:
     restart: always
 
   hydra-node-bob:
-    image: ghcr.io/input-output-hk/hydra-node:0.6.0
+    image: hydra-node-vasil:latest
     volumes:
       - ./keys:/keys:ro
       - ./devnet/credentials:/credentials:ro
       - ./devnet/ipc:/ipc
       - ./devnet:/config
+      - /home/mitch/cardano/node/testnet:/node
     ports:
       - "4002:4001"
     command:
@@ -67,10 +67,10 @@ services:
       , "--hydra-verification-key", "/keys/alice.vk"
       , "--cardano-signing-key", "/credentials/bob.sk"
       , "--cardano-verification-key", "/credentials/alice.vk"
-      , "--ledger-genesis", "/config/genesis-shelley.json"
-      , "--ledger-protocol-parameters", "/config/protocol-parameters.json"
-      , "--network-id", "42"
-      , "--node-socket", "/ipc/node.socket"
+      , "--ledger-genesis", "/config/testnet-shelley-genesis.json"
+      , "--ledger-protocol-parameters", "/node/protocol.json"
+      , "--network-id", "1097911063"
+      , "--node-socket", "/node/node.socket"
       ]
     networks:
       hydra_net:
