@@ -44,7 +44,7 @@
     };
     cardano-node = {
       url =
-        "github:input-output-hk/cardano-node/cc246841581f1bf445d2dfbd16fd2bb9f4a66389";
+        "github:input-output-hk/cardano-node/e73bb43ea0b83a36e70e944a1427a20add3296f8";
       flake = false; # we need it to be available in shell
     };
     cardano-prelude = {
@@ -53,7 +53,7 @@
       flake = false;
     };
     cardano-wallet = {
-      url = "github:input-output-hk/cardano-wallet/40c97e8cd75821d8713b6ed50c87cafc47b51f1c";
+      url = "github:input-output-hk/cardano-wallet/a7ed23a080852c65977cfd8bcb636317e2573e09";
       flake = false;
     };
     ekg-forward = {
@@ -113,12 +113,17 @@
     };
     plutus = {
       url =
-        "github:input-output-hk/plutus/f680ac6979e069fcc013e4389ee607ff5fa6672f";
+        "github:input-output-hk/plutus/69ab98c384703172f898eb5bcad1078ded521426";
       flake = false;
     };
     plutus-apps = {
       url =
-        "github:input-output-hk/plutus-apps/c2b310968d0915e2af0ea4680186b41ad88ffbe9";
+        "github:input-output-hk/plutus-apps/71572d530d52db4663ee201270f0dade7fc8b4b9";
+      flake = false;
+    };
+    quickcheck-dynamic = {
+      url =
+        "github:input-output-hk/quickcheck-dynamic/c272906361471d684440f76c297e29ab760f6a1e";
       flake = false;
     };
     typed-protocols = {
@@ -376,9 +381,12 @@
             # "plutus-playground-server"
             "plutus-script-utils"
             # "plutus-use-cases"
-            "quickcheck-dynamic"
             # "web-ghc"
           ];
+        }
+        {
+          src = inputs.quickcheck-dynamic;
+          subdirs = [ "." ];
         }
         {
           src = inputs.typed-protocols;
@@ -392,10 +400,6 @@
           src = inputs.Win32-network;
           subdirs = [ "." ];
         }
-      ];
-
-      additional = ps: [
-        ps.hydra-test-utils
       ];
 
       projectFor = system:
@@ -417,9 +421,10 @@
               ps.hydra-prelude
               ps.hydra-test-utils
               ps.hydra-tui
-              # ps.plutus-contract
+              ps.plutus-contract
               ps.plutus-ledger-constraints
               ps.plutus-script-utils
+              ps.plutus-tx-plugin
             ];
             withHoogle = false;
             tools.haskell-language-server = { };

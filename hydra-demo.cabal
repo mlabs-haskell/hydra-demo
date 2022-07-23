@@ -100,7 +100,7 @@ library
     , cardano-api
     , containers
     , lens
-    -- , plutus-contract
+    , plutus-contract
     , plutus-ledger
     , plutus-ledger-api
     , plutus-ledger-constraints
