@@ -50,7 +50,7 @@ import Data.Text.Lazy (Text)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.IO qualified as Text (putStrLn)
 import Ledger qualified (Address (Address), PubKeyHash)
-import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash, toCardanoAddress)
+import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash, toCardanoAddressInEra)
 import Network.WebSockets (ConnectionException, receiveData, runClient, sendTextData)
 import Plutus.V1.Ledger.Api (Credential (PubKeyCredential), CurrencySymbol (unCurrencySymbol), fromBuiltin, TokenName (unTokenName))
 import PlutusTx (ToData (toBuiltinData))
@@ -291,7 +291,7 @@ eventProcessor submit nextEvent = openTheHead
                         Map.lookupMin $
                           unUTxO $
                             utxosAt state.hsUserCredentials.userAddress utxo
-                    scriptAddress <- first (("toCardanoAddress: " <>) . show) $ toCardanoAddress state.hsNetworkId auctionAddress
+                    scriptAddress <- first (("toCardanoAddress: " <>) . show) $ toCardanoAddressInEra state.hsNetworkId auctionAddress
                     let betUtxos = utxosAt scriptAddress utxo
                     unsignedTx <- buildClaimTx collateralTxIn state (filterUtxos redeemer betUtxos) redeemer
                     pure $ signTx state.hsUserCredentials.userSkey unsignedTx

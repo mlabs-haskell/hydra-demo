@@ -51,7 +51,7 @@ import Data.Text.Lazy (Text)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.IO qualified as Text (putStrLn)
 import Ledger qualified (Address (Address), PubKeyHash)
-import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash, toCardanoAddress)
+import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash, toCardanoAddressInEra)
 import Network.WebSockets (ConnectionException, receiveData, runClient, sendTextData)
 import Plutus.V1.Ledger.Api (Credential (PubKeyCredential))
 import PlutusTx (ToData (toBuiltinData), builtinDataToData)
@@ -296,7 +296,7 @@ eventProcessor submit nextEvent = openTheHead
                         Map.lookupMin $
                           unUTxO $
                             utxosAt state.hsUserCredentials.userAddress utxo
-                    scriptAddress <- first (("toCardanoAddress: " <>) . show) $ toCardanoAddress state.hsNetworkId rpsValidatorAddress
+                    scriptAddress <- first (("toCardanoAddress: " <>) . show) $ toCardanoAddressInEra state.hsNetworkId rpsValidatorAddress
                     let betUtxos = utxosAt scriptAddress utxo
                     unsignedTx <- buildClaimTx collateralTxIn state (filterUtxos redeemer betUtxos) redeemer
                     pure $ signTx state.hsUserCredentials.userSkey unsignedTx
@@ -398,7 +398,7 @@ buildClaimTx :: TxIn -> HeadState -> [(TxIn, Gesture, Cardano.Api.Value, GameDat
 buildClaimTx collateralTxIn state [(myTxIn, myGesture, myTxValue, myDatum), (theirTxIn, theirGesture, theirTxValue, theirDatum)] redeemer = do
   theirAddress <-
     first (("bad their pub key hash: " <>) . show) $
-      toCardanoAddress state.hsNetworkId $
+      toCardanoAddressInEra state.hsNetworkId $
         Ledger.Address (PubKeyCredential theirDatum.gdPkh) Nothing
   let maxTxExUnits =
         fromMaybe ExecutionUnits {executionSteps = 0, executionMemory = 0} $

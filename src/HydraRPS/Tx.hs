@@ -29,7 +29,7 @@ import Ledger qualified (Address)
 import Ledger.Scripts (Validator (getValidator))
 import Ledger.Tx.CardanoAPI (
   ToCardanoError (DeserialisationError),
-  toCardanoAddress,
+  toCardanoAddressInEra,
   toCardanoScriptInEra,
  )
 import PlutusTx qualified (ToData, toBuiltinData)
@@ -99,7 +99,7 @@ txInForValidator txIn validator (TxDatum datum) (TxRedeemer redeemer) exUnits = 
 
 txOutToScript :: PlutusTx.ToData d => NetworkId -> Ledger.Address -> Lovelace -> TxDatum d -> Either ToCardanoError (TxOut ctx AlonzoEra)
 txOutToScript networkId scriptAddress lovelace (TxDatum datum) = do
-  address <- toCardanoAddress networkId scriptAddress
+  address <- toCardanoAddressInEra networkId scriptAddress
   pure $ TxOut address (lovelaceToTxOutValue lovelace) (TxOutDatumHash ScriptDataInAlonzoEra (hashScriptData scriptData)) ReferenceScriptNone
   where
     scriptData = toCardanoData datum
