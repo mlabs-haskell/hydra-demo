@@ -1,4 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Redundant bracket" #-}
 
 module HydraRPS.OffChain (
   endpoints,
@@ -50,7 +52,7 @@ endpoints =
 
 play :: PlayParams -> Contract () RPSSchema Text ()
 play (PlayParams gesture salt) = do
-  pkh <- Ledger.unPaymentPubKeyHash <$> Contract.ownPaymentPubKeyHash
+  pkh <- Ledger.unPaymentPubKeyHash <$> Contract.ownFirstPaymentPubKeyHash
   let val = Ada.lovelaceValueOf 20000000
       datum = Ledger.Datum $ PlutusTx.toBuiltinData $ GameDatum (encryptGesture gesture salt) pkh
       tx = Constraints.mustPayToOtherScript rpsValidatorHash datum val

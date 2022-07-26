@@ -1,3 +1,6 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Redundant bracket" #-}
 module HydraRPS.App (EnqueueCommand, HeadState (..), UserCommand (..), betConstant, withApiClient, UserCredentials, mkUserCredentials) where
 
 import Cardano.Api (
@@ -28,17 +31,18 @@ import Cardano.Api (
   txOutValueToValue,
  )
 import Cardano.Api qualified (Value)
-import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits))
+import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits), fromPlutusData)
 import Control.Concurrent (newChan, readChan, writeChan)
 import Control.Concurrent.Async (wait, withAsync)
 import Control.Exception (try)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader.Class (MonadReader, ask)
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
-import Data.Aeson (ToJSON, eitherDecode, encode, (.:))
+import Data.Aeson (ToJSON, toJSON, eitherDecode, encode, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.Bifunctor (first)
-import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy (ByteString, fromStrict)
+import Data.ByteString.Internal qualified as BSI (ByteString)
 import Data.Kind (Type)
 import Data.List (sortOn)
 import Data.Map qualified as Map (lookupMin, toList)
@@ -46,10 +50,10 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text.Lazy (Text)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.IO qualified as Text (putStrLn)
-import Ledger qualified (Address (Address), PubKeyHash, toCardanoAPIData)
-import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash, toCardanoAddress)
+import Ledger qualified (Address (Address), PubKeyHash)
+import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash, toCardanoAddressInEra)
 import Network.WebSockets (ConnectionException, receiveData, runClient, sendTextData)
-import Plutus.V1.Ledger.Api (Credential (PubKeyCredential))
+import Plutus.V1.Ledger.Api (Credential (PubKeyCredential), builtinDataToData)
 import PlutusTx (ToData (toBuiltinData))
 import PlutusTx.Prelude (BuiltinByteString)
 
@@ -307,7 +311,7 @@ eventProcessor submit nextEvent = openTheHead
                         Map.lookupMin $
                           unUTxO $
                             utxosAt state.hsUserCredentials.userAddress utxo
-                    scriptAddress <- first (("toCardanoAddress: " <>) . show) $ toCardanoAddress state.hsNetworkId rpsValidatorAddress
+                    scriptAddress <- first (("toCardanoAddress: " <>) . show) $ toCardanoAddressInEra state.hsNetworkId rpsValidatorAddress
                     let betUtxos = utxosAt scriptAddress utxo
                     unsignedTx <- buildClaimTx collateralTxIn state (filterUtxos redeemer betUtxos) redeemer
                     pure $ signTx state.hsUserCredentials.userSkey unsignedTx
@@ -409,7 +413,7 @@ buildClaimTx :: TxIn -> HeadState -> [(TxIn, Gesture, Cardano.Api.Value, GameDat
 buildClaimTx collateralTxIn state [(myTxIn, myGesture, myTxValue, myDatum), (theirTxIn, theirGesture, theirTxValue, theirDatum)] redeemer = do
   theirAddress <-
     first (("bad their pub key hash: " <>) . show) $
-      toCardanoAddress state.hsNetworkId $
+      toCardanoAddressInEra state.hsNetworkId $
         Ledger.Address (PubKeyCredential theirDatum.gdPkh) Nothing
   let maxTxExUnits =
         fromMaybe ExecutionUnits {executionSteps = 0, executionMemory = 0} $
@@ -451,7 +455,7 @@ filterUtxos :: GameRedeemer -> UTxO AlonzoEra -> [(TxIn, Gesture, Cardano.Api.Va
 filterUtxos (GameRedeemer (myPk, mySalt) (theirPk, theirSalt)) (UTxO utxos) =
   foldl step [] (Map.toList utxos)
   where
-    step acc (txOutRef, TxOut _ txOutValue (TxOutDatumHash _ dh))
+    step acc (txOutRef, TxOut _ txOutValue (TxOutDatumHash _ dh) _)
       | length acc >= 2 = acc
       | Just (gesture, datum) <- extractGesture myPk mySalt dh = (txOutRef, gesture, txOutValueToValue txOutValue, datum) : acc
       | Just (gesture, datum) <- extractGesture theirPk theirSalt dh = acc ++ [(txOutRef, gesture, txOutValueToValue txOutValue, datum)]
@@ -464,5 +468,9 @@ filterUtxos (GameRedeemer (myPk, mySalt) (theirPk, theirSalt)) (UTxO utxos) =
         [ (gesture, datum)
         | gesture <- [minBound .. maxBound]
         , let datum = buildDatum (UserInput.PlayParams gesture salt) key
-        , hashScriptData (Ledger.toCardanoAPIData (toBuiltinData datum)) == dh
+        , hashScriptData (fromPlutusData $ builtinDataToData $ toBuiltinData datum) == dh
         ]
+
+-- This is probably not the best solution. Since it is an orphan.
+instance ToJSON BSI.ByteString where
+  toJSON bs = toJSON $ decodeUtf8 $ fromStrict bs
