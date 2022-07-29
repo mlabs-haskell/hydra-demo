@@ -1,0 +1,25 @@
+bob submits Init
+2022-07-28T14:53:35.801228Z
+
+cluster sees Init
+2022-07-28T14:56:33.270497454Z
+
+bob submits commit
+2022-07-28T14:57:23.554625767Z
+
+cluster sees commit
+2022-07-28T15:08:12.425817296Z
+
+alice submits commit
+2022-07-28T15:09:07.381245567Z
+
+cluster sees commit
+2022-07-28T15:34:48.567725484Z
+
+Hydra Head Opens
+2022-07-28T15:42:30.661463089Z
+
+alice immediately submits a bet, but it is not in the hydra-node log
+
+ReceivedTxs
+2022-07-28T15:49:27.394309726Z
