@@ -7,7 +7,7 @@ tests: true
 source-repository-package
   type: git
   location: https://github.com/input-output-hk/cardano-node.git
-  tag: e73bb43ea0b83a36e70e944a1427a20add3296f8
+  tag: 8d592327493f35dd954143609bfb9b9c2e08c133
   --sha256: CcTzCu7YTloaO+nAnBVRiO2AVIo3iIL2Ned+BqkYIE0=
   subdir:
     cardano-api
@@ -55,8 +55,8 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/input-output-hk/cardano-ledger
-  tag: b425b51a80f57cadccff5eaf9443bf492b2c51d6
-  --sha256: Ivgd5MK7u6fy6G1RuuBL97bWMn72z4V1CVwT8UD2cHI=
+  tag: c7c63dabdb215ebdaed8b63274965966f2bf408f
+  --sha256: 1cn1z3dh5dy5yy42bwfd8rg25mg8qp3m55gyfsl563wgw4q1nd6d
   subdir:
     eras/alonzo/impl
     eras/alonzo/test-suite
@@ -86,8 +86,8 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/input-output-hk/cardano-prelude
-  tag: 533aec85c1ca05c7d171da44b89341fb736ecfe5
-  --sha256: T5hW85PfnuR6066jIhH/2g5dzTmI0JXsXSKwez8fXnw=
+  tag: bb4ed71ba8e587f672d06edf9d2e376f4b055555
+  --sha256: 00h10l5mmiza9819p9v5q5749nb9pzgi20vpzpy1d34zmh6gf1cj
   subdir:
     cardano-prelude
     cardano-prelude-test
@@ -121,8 +121,8 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/input-output-hk/ouroboros-network
-  tag: 5f882881fc1279a9ab8699721248162e2881c6ca
-  --sha256: /MS7vUQihCS6YkNT6RD7T+mp+Y8pzHX/O3K9clNk0Xk=
+  tag: cb9eba406ceb2df338d8384b35c8addfe2067201
+  --sha256: 066llskxzjgcs13lwlvklb28azb9kd9b77j61x8fvrj1rlf5njfw
   subdir:
     monoidal-synchronisation
     network-mux
@@ -139,8 +139,8 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/input-output-hk/io-sim
-  tag: 57e888b1894829056cb00b7b5785fdf6a74c3271
-  --sha256: TviSvCBEYtlKEo9qJmE8pCE25nMjDi8HeIAFniunaM8=
+  tag: f4183f274d88d0ad15817c7052df3a6a8b40e6dc
+  --sha256: 0vb2pd9hl89v2y5hrhrsm69yx0jf98vppjmfncj2fraxr3p3lldw
   subdir:
     io-classes
     io-sim
@@ -159,8 +159,8 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/input-output-hk/plutus
-  tag: 69ab98c384703172f898eb5bcad1078ded521426
-  --sha256: ATwDR5LX2RN9YfoPhTxV7REvFoJnM4x/CN9XZVZlalg=
+  tag: a56c96598b4b25c9e28215214d25189331087244
+  --sha256: 12d6bndmj0dxl6xlaqmf78326yp5hw093bmybmqfpdkvk4mgz03j
   subdir:
     plutus-core
     plutus-ledger-api
