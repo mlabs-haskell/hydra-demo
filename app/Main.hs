@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Cardano.Api (
-  AsType (AsAddressInEra, AsAlonzoEra, AsPaymentKey, AsSigningKey),
+  AsType (AsAddressInEra, AsBabbageEra, AsPaymentKey, AsSigningKey),
   Lovelace (..),
   NetworkId (Testnet),
   NetworkMagic (NetworkMagic),
@@ -74,7 +74,7 @@ processCLICommand = do
           pure $ Just $ InitHead period
       ["commit", txInStr, addrStr, lovelaceStr]
         | Right txIn <- parseTxIn (fromString txInStr)
-          , Just addr <- deserialiseAddress (AsAddressInEra AsAlonzoEra) (fromString addrStr)
+          , Just addr <- deserialiseAddress (AsAddressInEra AsBabbageEra) (fromString addrStr)
           , Just lovelace <- parseLovelace lovelaceStr ->
           pure $ Just $ CommitToHead $ UTxO $ Map.singleton txIn (txOutToAddress addr lovelace)
       ["bet", gestureStr, saltStr]

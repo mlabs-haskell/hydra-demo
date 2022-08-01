@@ -5,9 +5,7 @@ module HydraRPS.App (EnqueueCommand, HeadState (..), UserCommand (..), betConsta
 
 import Cardano.Api (
   AddressInEra,
-  AlonzoEra,
   BuildTxWith (BuildTxWith),
-  CollateralSupportedInEra (CollateralInAlonzoEra),
   ExecutionUnits (ExecutionUnits, executionMemory, executionSteps),
   Hash,
   Key (getVerificationKey, verificationKeyHash),
@@ -28,7 +26,7 @@ import Cardano.Api (
   hashScriptData,
   makeShelleyAddressInEra,
   makeTransactionBody,
-  txOutValueToValue,
+  txOutValueToValue, BabbageEra, CollateralSupportedInEra (CollateralInBabbageEra)
  )
 import Cardano.Api qualified (Value)
 import Cardano.Api.Shelley (ProtocolParameters (protocolParamMaxTxExUnits), fromPlutusData)
@@ -51,7 +49,7 @@ import Data.Text.Lazy (Text)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.IO qualified as Text (putStrLn)
 import Ledger qualified (Address (Address), PubKeyHash)
-import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash, toCardanoAddressInEra)
+import Ledger.Tx.CardanoAPI (fromCardanoPaymentKeyHash)
 import Network.WebSockets (ConnectionException, receiveData, runClient, sendTextData)
 import Plutus.V1.Ledger.Api (Credential (PubKeyCredential), builtinDataToData)
 import PlutusTx (ToData (toBuiltinData))
@@ -78,7 +76,7 @@ import HydraRPS.Tx (
   txOutToAddress,
   txOutToScript,
   txOutValueToAddress,
-  utxosAt,
+  utxosAt, toCardanoAddressInBabbageEra
  )
 import HydraRPS.UserInput qualified as UserInput
 
@@ -101,15 +99,15 @@ data AppEvent
 
 data ServerOutput
   = Other Text
-  | HeadIsOpen (UTxO AlonzoEra)
-  | SnapshotConfirmed (UTxO AlonzoEra)
+  | HeadIsOpen (UTxO BabbageEra)
+  | SnapshotConfirmed (UTxO BabbageEra)
   | HeadIsClosed
   | ReadyToFanout
-  | HeadIsFinalized (UTxO AlonzoEra)
+  | HeadIsFinalized (UTxO BabbageEra)
 
 data UserCommand
   = InitHead Int
-  | CommitToHead (UTxO AlonzoEra)
+  | CommitToHead (UTxO BabbageEra)
   | Exit
   | AbortHead
   | CloseHead
@@ -120,7 +118,7 @@ data UserCommand
 data UserCredentials = UserCredentials
   { userSkey :: SigningKey PaymentKey
   , userPubKeyHash :: Ledger.PubKeyHash
-  , userAddress :: AddressInEra AlonzoEra
+  , userAddress :: AddressInEra BabbageEra
   }
 
 mkUserCredentials :: NetworkId -> SigningKey PaymentKey -> UserCredentials
@@ -248,7 +246,7 @@ eventProcessor submit nextEvent = openTheHead
               liftIO $ putStrLn "head is not opened yet"
               openTheHead
 
-    playTheGame :: UTxO AlonzoEra -> m ()
+    playTheGame :: UTxO BabbageEra -> m ()
     playTheGame utxo = do
       event <- liftIO nextEvent
       case event of
@@ -311,7 +309,7 @@ eventProcessor submit nextEvent = openTheHead
                         Map.lookupMin $
                           unUTxO $
                             utxosAt state.hsUserCredentials.userAddress utxo
-                    scriptAddress <- first (("toCardanoAddress: " <>) . show) $ toCardanoAddressInEra state.hsNetworkId rpsValidatorAddress
+                    scriptAddress <- first (("toCardanoAddress: " <>) . show) $ toCardanoAddressInBabbageEra state.hsNetworkId rpsValidatorAddress
                     let betUtxos = utxosAt scriptAddress utxo
                     unsignedTx <- buildClaimTx collateralTxIn state (filterUtxos redeemer betUtxos) redeemer
                     pure $ signTx state.hsUserCredentials.userSkey unsignedTx
@@ -392,7 +390,7 @@ buildDatum playParams pkh =
     }
 
 -- precondition: inputTotal >= betConstant
-buildBetTx :: [TxIn] -> Lovelace -> HeadState -> UserInput.PlayParams -> Either String (TxBody AlonzoEra)
+buildBetTx :: [TxIn] -> Lovelace -> HeadState -> UserInput.PlayParams -> Either String (TxBody BabbageEra)
 buildBetTx inputRefs inputTotal state playParams = do
   let changeAddress = state.hsUserCredentials.userAddress
       datum = buildDatum playParams state.hsUserCredentials.userPubKeyHash
@@ -409,11 +407,11 @@ buildBetTx inputRefs inputTotal state playParams = do
           }
   first (("bad tx-body: " <>) . show) $ makeTransactionBody bodyContent
 
-buildClaimTx :: TxIn -> HeadState -> [(TxIn, Gesture, Cardano.Api.Value, GameDatum)] -> GameRedeemer -> Either String (TxBody AlonzoEra)
+buildClaimTx :: TxIn -> HeadState -> [(TxIn, Gesture, Cardano.Api.Value, GameDatum)] -> GameRedeemer -> Either String (TxBody BabbageEra)
 buildClaimTx collateralTxIn state [(myTxIn, myGesture, myTxValue, myDatum), (theirTxIn, theirGesture, theirTxValue, theirDatum)] redeemer = do
   theirAddress <-
     first (("bad their pub key hash: " <>) . show) $
-      toCardanoAddressInEra state.hsNetworkId $
+      toCardanoAddressInBabbageEra state.hsNetworkId $
         Ledger.Address (PubKeyCredential theirDatum.gdPkh) Nothing
   let maxTxExUnits =
         fromMaybe ExecutionUnits {executionSteps = 0, executionMemory = 0} $
@@ -441,7 +439,7 @@ buildClaimTx collateralTxIn state [(myTxIn, myGesture, myTxValue, myDatum), (the
   let bodyContent =
         baseBodyContent
           { txIns = [myValidatorTxIn, theirValidatorIxIn]
-          , txInsCollateral = TxInsCollateral CollateralInAlonzoEra [collateralTxIn]
+          , txInsCollateral = TxInsCollateral CollateralInBabbageEra [collateralTxIn]
           , txOuts = outputs
           , txProtocolParams = BuildTxWith (Just state.hsProtocolParams)
           }
@@ -451,7 +449,7 @@ buildClaimTx _ _ _ _ = Left "bad input parameters"
 -- Given a GameRedeemer and set of utxos, it will return a pair of [ myUtxo, theirUtxo ]
 -- according to the parameters passed in the redeemer.
 -- UTxOs are expanded to (TxIn, Gesture, Value, Datum) for easier use in `buildClaimTx`
-filterUtxos :: GameRedeemer -> UTxO AlonzoEra -> [(TxIn, Gesture, Cardano.Api.Value, GameDatum)]
+filterUtxos :: GameRedeemer -> UTxO BabbageEra -> [(TxIn, Gesture, Cardano.Api.Value, GameDatum)]
 filterUtxos (GameRedeemer (myPk, mySalt) (theirPk, theirSalt)) (UTxO utxos) =
   foldl step [] (Map.toList utxos)
   where

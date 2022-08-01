@@ -15,7 +15,7 @@ module HydraRPS.Node.Command (
   newTx,
 ) where
 
-import Cardano.Api (AlonzoEra, Tx, UTxO, serialiseToCBOR)
+import Cardano.Api (Tx, UTxO, serialiseToCBOR, BabbageEra)
 import Data.Aeson (ToJSON, toJSON)
 import Data.Int (Int)
 import GHC.Generics (Generic)
@@ -24,7 +24,7 @@ import qualified Data.ByteString as Data.ByteString.Internal
 data Command
   = Init {contestationPeriod :: !Int}
   | Abort
-  | Commit {utxo :: !(UTxO AlonzoEra)}
+  | Commit {utxo :: !(UTxO BabbageEra)}
   | NewTx {transaction :: !TxCBOR}
   | GetUTxO
   | Close
@@ -32,12 +32,12 @@ data Command
   | Fanout
   deriving stock (Generic)
 
-newtype TxCBOR = TxCBOR (Tx AlonzoEra)
+newtype TxCBOR = TxCBOR (Tx BabbageEra)
 
 instance ToJSON Data.ByteString.Internal.ByteString => ToJSON TxCBOR where
   toJSON (TxCBOR tx) = toJSON (serialiseToCBOR tx)
 
-newTx :: Tx AlonzoEra -> Command
+newTx :: Tx BabbageEra -> Command
 newTx tx = NewTx (TxCBOR tx)
 
 instance ToJSON Data.ByteString.Internal.ByteString => ToJSON Command
