@@ -1,4 +1,4 @@
-﻿﻿# Overview
+# Overview
 
 A simple betting game for two players (“Rock-Paper-Scissors”) played inside a Hydra head.
 
