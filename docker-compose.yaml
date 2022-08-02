@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   cardano-node:
-    image: inputoutput/cardano-node:${CARDANO_NODE_VERSION:-1.35.3}
+    image: inputoutput/cardano-node:${CARDANO_NODE_VERSION:-1.35.3-testnetonly}
     volumes:
       - ./devnet:/data
       - /home/mitch/cardano/node/testnet:/node
